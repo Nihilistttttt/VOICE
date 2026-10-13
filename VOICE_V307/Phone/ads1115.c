@@ -33,7 +33,7 @@
 static uint8_t i2c_wait_event(uint32_t event)
 {
     uint32_t t = ADS1115_I2C_TIMEOUT;
-    while (!I2C_CheckEvent(ADS1115_I2C, event)) {
+    while (!I2C_CheckEvent(ADS1115_I2C_INSTANCE, event)) {
         if (--t == 0) return 1;
     }
     return 0;
@@ -42,7 +42,7 @@ static uint8_t i2c_wait_event(uint32_t event)
 static uint8_t i2c_wait_flag(uint32_t flag, FlagStatus state)
 {
     uint32_t t = ADS1115_I2C_TIMEOUT;
-    while (I2C_GetFlagStatus(ADS1115_I2C, flag) == state) {
+    while (I2C_GetFlagStatus(ADS1115_I2C_INSTANCE, flag) == state) {
         if (--t == 0) return 1;
     }
     return 0;
@@ -50,8 +50,8 @@ static uint8_t i2c_wait_flag(uint32_t flag, FlagStatus state)
 
 static void i2c_bus_release(void)
 {
-    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);
-    I2C_Cmd(ADS1115_I2C, ENABLE);   /* 读 SR1+写 CR1 顺带清 STOPF */
+    I2C_GenerateSTOP(ADS1115_I2C_INSTANCE, ENABLE);
+    I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);   /* 读 SR1+写 CR1 顺带清 STOPF */
 }
 
 static void transport_init(void)
@@ -71,30 +71,30 @@ static void transport_init(void)
     I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
     I2C_Init(ADS1115_I2C_INSTANCE, &I2C_InitStructure);
 
-    I2C_Cmd(ADS1115_I2C, ENABLE);
+    I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);
     ADS_DBG("[ADS1115] transport = hardware I2C2 @100kHz\r\n");
 }
 
 uint8_t ADS1115_WriteReg(uint8_t reg, uint16_t value)
 {
     /* 写: START → 器件地址(W) → 寄存器指针 → 16 位数据(高在前) → STOP */
-    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    I2C_GenerateSTART(ADS1115_I2C_INSTANCE, ENABLE);
     if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 1; }
 
-    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
+    I2C_Send7bitAddress(ADS1115_I2C_INSTANCE, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
     if (i2c_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED)) { ADS_FAIL(); i2c_bus_release(); return 1; }
 
-    I2C_SendData(ADS1115_I2C, reg);
+    I2C_SendData(ADS1115_I2C_INSTANCE, reg);
     if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
 
-    I2C_SendData(ADS1115_I2C, (uint8_t)(value >> 8));
+    I2C_SendData(ADS1115_I2C_INSTANCE, (uint8_t)(value >> 8));
     if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
 
-    I2C_SendData(ADS1115_I2C, (uint8_t)(value & 0xFF));
+    I2C_SendData(ADS1115_I2C_INSTANCE, (uint8_t)(value & 0xFF));
     if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
 
-    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);
-    I2C_Cmd(ADS1115_I2C, ENABLE);
+    I2C_GenerateSTOP(ADS1115_I2C_INSTANCE, ENABLE);
+    I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);
     return 0;
 }
 
@@ -103,35 +103,37 @@ uint16_t ADS1115_ReadReg(uint8_t reg)
     uint8_t  hi, lo;
 
     /* 先把寄存器指针写到器件（写事务）*/
-    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    I2C_GenerateSTART(ADS1115_I2C_INSTANCE, ENABLE);
     if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 0; }
 
-    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
+    I2C_Send7bitAddress(ADS1115_I2C_INSTANCE, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
     if (i2c_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED)) { ADS_FAIL(); i2c_bus_release(); return 0; }
 
-    I2C_SendData(ADS1115_I2C, reg);
+    I2C_SendData(ADS1115_I2C_INSTANCE, reg);
     if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 0; }
 
     /* 重复 START，转入读方向 */
-    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    I2C_GenerateSTART(ADS1115_I2C_INSTANCE, ENABLE);
     if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 0; }
 
-    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Receiver);
+    I2C_Send7bitAddress(ADS1115_I2C_INSTANCE, ADS1115_I2C_ADDR << 1, I2C_Direction_Receiver);
     if (i2c_wait_event(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED))    { ADS_FAIL(); i2c_bus_release(); return 0; }
 
-    /* 2 字节接收：收最后一字节前把 ACK 关掉（标准两字节序列）*/
-    I2C_AcknowledgeConfig(ADS1115_I2C, DISABLE);
+    /* 2 字节接收: b1 正常 ACK 收走 → 关 ACK + 编程 STOP → 读 b2。
+     * ★ ACK=0 必须在 b1 收走之后再设 —— ADDR 后立即关 ACK 会让 NACK
+     *   提前到 b1 生效, 传感器收到 NACK 后不再发 b2
+     *   （实测 612 次失败 + BTF 变体 365 次失败, 全部死于此）。 */
+    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); i2c_bus_release(); return 0; }
+    hi = I2C_ReceiveData(ADS1115_I2C_INSTANCE);
 
-    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); i2c_bus_release(); I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE); return 0; }
-    hi = I2C_ReceiveData(ADS1115_I2C);
+    I2C_AcknowledgeConfig(ADS1115_I2C_INSTANCE, DISABLE);
+    I2C_GenerateSTOP(ADS1115_I2C_INSTANCE, ENABLE);
 
-    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);   /* 读最后一字节前先编程 STOP */
+    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); I2C_AcknowledgeConfig(ADS1115_I2C_INSTANCE, ENABLE); return 0; }
+    lo = I2C_ReceiveData(ADS1115_I2C_INSTANCE);
 
-    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE); return 0; }
-    lo = I2C_ReceiveData(ADS1115_I2C);
-
-    I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE);
-    I2C_Cmd(ADS1115_I2C, ENABLE);            /* 清 STOPF，为下次事务做准备 */
+    I2C_AcknowledgeConfig(ADS1115_I2C_INSTANCE, ENABLE);
+    I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);            /* 清 STOPF，为下次事务做准备 */
 
     return (uint16_t)hi << 8 | lo;
 }
