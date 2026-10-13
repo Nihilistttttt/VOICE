@@ -1,0 +1,42 @@
+# Build outputs
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.lst
+*.map
+*.crf
+*.iex
+*.sct
+*.dep
+*.htm
+*.bak
+*.log
+
+# MounRiver Studio
+Debug/
+Release/
+.settings/
+*.launch
+*.uvguix.*
+
+# Keil MDK
+*.uvopt
+*.uvprojx.bak
+JLinkLog.txt
+*.jlink
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+.preferences
+
+# 工具 / 助手产生的目录（不应进版本库）
+# .codegraph 是 188MB 的可再生索引，绝不能被 add（会超 GitHub 100MB 单文件上限）
+.codegraph/
+.workbuddy/
+
+# 构建输出目录
+build/

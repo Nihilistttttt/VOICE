@@ -1,0 +1,83 @@
+CodeArts 规范性要求
+====================
+
+【Git操作】
+1. 禁止未经允许执行 git commit 或 git push，只有用户明确说"提交""推送"时才可执行，提交时要注意范围，用户说先提交，再进行某任务时后续任务应经过用户验证等待用户的推送许可。
+2. commit message 要讲清楚改了什么、为什么改，方便后续理解
+3. 优化清单中已完成项打勾标记
+
+【代码修改】
+4. 修改前必须先完整阅读相关代码，严谨模拟逻辑链路后再动手
+5. 不能仅凭静态分析下结论，必须结合实际运行行为验证（用户会实测）
+6. 删除代码前必须确认无外部引用，且理解删除后对运行时行为的影响
+7. 修复Bug时不能引入新的逻辑矛盾，必须推演修复后的完整执行路径
+
+【分析要求】
+8. 分析问题前先严谨模拟一遍逻辑，不能想当然
+9. 评估严重性必须区分"理论风险"和"实际影响"，不能夸大
+10. 对比方案时必须按以下要求执行：
+    a. 明确界定每个方案的核心机制、关键参数与适用场景
+    b. 构建完整的逻辑链路模拟流程，详细推演各环节的输入、处理逻辑与输出状态
+    c. 从执行效率、资源开销、鲁棒性及容错能力等维度深度对比
+    d. 梳理并评估逻辑链路中潜在的性能瓶颈与单点故障风险
+11. 发现之前的分析有误时必须主动纠正，不能将错就错
+
+【沟通风格】
+12. 使用简体中文交流，混合英文技术术语
+13. 偏好通俗易懂的解释方式，避免过于晦涩的技术术语
+14. 回答简洁，不说废话
+15. 所有输出、请求、改写等在输出前检查乱码
+
+# EEG Project Notes
+
+## MCU Firmware
+- Linker scripts: `D:\Libraries\Projects\VOICE\EXAM\SRC\Ld\V3F\Link_v3f.ld` and `V5F\Link_v5f.ld`
+- Core_V5F_StartAddr: `D:\Libraries\Projects\VOICE\EXAM\SRC\Debug\debug.h`
+- FLASH partition: V3F=92K(0x0~0x17000), V5F=140K(0x17000~), total=232K
+- Build tool: MounRiver Studio 2 (risc-v embedded gcc12)
+- Project name: GPIO_Toggle_V3F
+- Toolchain: `D:\InstallData\EmbTools\MounRiver\MounRiver_Studio2\resources\app\resources\win32\components\WCH\Toolchain\RISC-V Embedded GCC12\bin\riscv-wch-elf-gcc.exe`
+- MounRiver IDE: `D:\InstallData\EmbTools\MounRiver\MounRiver_Studio2\MounRiver Studio 2.exe`
+- VOICE工程根: `D:\Libraries\Projects\VOICE\EXAM\GPIO\VOICE` (V3F/V5F子目录 + Common)
+- SRC公共: `D:\Libraries\Projects\VOICE\EXAM\SRC` (Debug/Core/Peripheral/inc)
+
+### MCU语法检查(无需IDE,命令行验证)
+MounRiver Studio 2是Electron应用无CLI构建,用riscv-wch-elf-gcc -fsyntax-only做语法检查。
+从.cproject提取宏(-D)和include路径(-I),构造命令:
+
+
+## embeddedskills (AI skill集)
+- 安装位置: `C:\Users\hp\.codeartsdoer\skills\` (每个子skill一个目录,含SKILL.md)
+- 已安装12个子skill: can/eide/gcc/jlink/keil/net/openocd/probe-rs/serial/ssh/terminal/workflow
+- 注册文件: `C:\Users\hp\.codeartsdoer\skills\UserSkillStatus.txt`
+- 来源: https://github.com/zhinkgit/embeddedskills (550★)
+
+### serial skill (已验证可用)
+- 扫描串口: `python C:\Users\hp\.codeartsdoer\skills\serial\scripts\serial_scan.py --json`
+- 监控串口: `python ...\serial_monitor.py --port COM7 --baudrate 115200 --json`
+- 本项目COM7 = WCH-LinkE (VID 1A86 PID 8010)
+
+### openocd skill (已配置,需硬件使能SDI)
+- WCH OpenOCD: `D:\InstallData\EmbTools\MounRiver\MounRiver_Studio2\resources\app\resources\win32\components\WCH\OpenOCD\OpenOCD\bin\openocd.exe`
+- OpenOCD scripts: `...\WCH\OpenOCD\OpenOCD\share\openocd\scripts`
+- CH32H417 SDI配置: `D:\Libraries\Projects\EEG\.embeddedskills\openocd\ch32h417_sdi.cfg`
+  - interface wlinke (WCH-LinkE调试器)
+  - transport sdi (WCH两线调试协议)
+  - target riscv (RISC-V内核)
+  - flash地址 0x08000000
+- 烧录命令:
+```powershell
+$oocd = "D:\InstallData\EmbTools\MounRiver\MounRiver_Studio2\resources\app\resources\win32\components\WCH\OpenOCD\OpenOCD\bin\openocd.exe"
+$scripts = "D:\InstallData\EmbTools\MounRiver\MounRiver_Studio2\resources\app\resources\win32\components\WCH\OpenOCD\OpenOCD\share\openocd\scripts"
+$cfg = "D:\Libraries\Projects\EEG\.embeddedskills\openocd\ch32h417_sdi.cfg"
+$bin = "D:\Libraries\Projects\VOICE\EXAM\GPIO\EEG\V5F\obj\Merge.Bin"
+& $oocd -s $scripts -f $cfg -c "flash write_image erase $bin 0x08000000 bin" -c "reset run" -c "shutdown"
+```
+- **注意**: 需先在硬件端使能SDI两线调试接口(boot模式+ISP工具),否则报"WCH-Link failed to connect"
+- **连接失败原因**: CH32H417使用USBHS(USB Host)模式时SDI接口不可用,需切回非USBHS模式才能烧录
+- WCH ISP工具(GUI): `...\WCH\Others\WCHISPTool\default\WCHISPTool_CH32Vxxx\WCHISPTool_CH32Vxxx.exe`
+- WCH-LinkUtility(GUI): `...\WCH\Others\SWDTool\default\WCH-LinkUtility.exe`
+- 固件文件:
+  - Merge.Bin (130960B) = V3F+V5F双核合并固件,烧录到0x08000000
+  - GPIO_Toggle_V5F.elf/.hex/.bin = V5F单独固件
+  - GPIO_Toggle_V3F.elf/.hex/.bin = V3F单独固件

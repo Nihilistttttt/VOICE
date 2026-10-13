@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOICE 架构优化方案</title>
+<style>
+:root{
+  --ink:#24262b; --ink2:#5a5f6b; --ink3:#8b909c;
+  --line:#e2e5ea; --bg:#f6f7f9; --card:#ffffff;
+  --blue:#2563eb; --blue-bg:#eef4ff; --blue-ln:#c7dbff;
+  --teal:#0f766e; --teal-bg:#eafaf6; --teal-ln:#b6e7dc;
+  --amber:#b45309; --amber-bg:#fff8ec; --amber-ln:#f6ddb0;
+  --red:#b91c1c; --red-bg:#fef2f2; --red-ln:#f7cccc;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.78 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+#toc{position:fixed;top:0;left:0;width:278px;height:100vh;overflow-y:auto;
+  background:var(--card);border-right:1px solid var(--line);padding:22px 16px 40px;}
+#toc h1{font-size:15px;margin:0 0 4px;font-weight:600}
+#toc .sub{font-size:12px;color:var(--ink3);margin-bottom:16px;line-height:1.55}
+#toc a{display:block;color:var(--ink2);text-decoration:none;font-size:13px;
+  padding:5px 9px;border-radius:6px;margin-bottom:1px}
+#toc a:hover{background:var(--blue-bg);color:var(--blue)}
+#toc a.lv2{padding-left:22px;font-size:12.5px;color:var(--ink3)}
+#toc .grp{font-size:11px;color:var(--ink3);margin:14px 0 5px;padding-left:9px;letter-spacing:.6px}
+main{margin-left:278px;padding:34px 40px 90px;max-width:1080px}
+h2{font-size:21px;margin:48px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line);font-weight:600}
+h2 .n{display:inline-block;background:var(--blue);color:#fff;font-size:13px;
+  border-radius:6px;padding:1px 8px;margin-right:9px;vertical-align:2px}
+h3{font-size:16px;margin:28px 0 8px;font-weight:600}
+h4{font-size:14px;margin:18px 0 6px;font-weight:600;color:var(--ink2)}
+p{margin:8px 0}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:3px 0}
+code{font-family:var(--mono);font-size:12.5px;background:#eef0f4;
+  padding:1px 5px;border-radius:4px;color:#1f3a5f}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;background:#f2f4f7;
+  border-left:3px solid var(--blue);border-radius:0 8px 8px 0;
+  padding:12px 15px;overflow-x:auto;margin:10px 0;color:#1f2937}
+pre .c{color:#6b7280}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#f0f2f6;font-weight:600;font-size:13px}
+td code{font-size:12px}
+.note,.warn,.why,.danger{border-radius:8px;padding:11px 15px;margin:12px 0;font-size:13.5px;border:1px solid}
+.note{background:var(--blue-bg);border-color:var(--blue-ln)}
+.warn{background:var(--amber-bg);border-color:var(--amber-ln)}
+.why{background:var(--teal-bg);border-color:var(--teal-ln)}
+.danger{background:var(--red-bg);border-color:var(--red-ln)}
+.note b,.warn b,.why b,.danger b{display:block;margin-bottom:3px;font-size:12px;letter-spacing:.5px}
+.note b{color:var(--blue)} .warn b{color:var(--amber)}
+.why b{color:var(--teal)} .danger b{color:var(--red)}
+.lead{font-size:15px;color:var(--ink2);background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:16px 20px;margin:16px 0}
+.tag{display:inline-block;font-size:11px;letter-spacing:.4px;border-radius:4px;
+  padding:1px 6px;margin-right:6px;vertical-align:2px;font-weight:600}
+.t-fact{background:#dcfce7;color:#166534}
+.t-drift{background:#fde8e8;color:#991b1b}
+.t-ok{background:#f1f5f9;color:#475569}
+mark{background:#fff3bf;padding:0 3px;border-radius:3px}
+.ok{color:#166534;font-weight:600}
+.bad{color:#991b1b;font-weight:600}
+.mid{color:#92400e;font-weight:600}
+.dim{font-family:var(--mono);font-size:12px;color:var(--ink3)}
+.matrix{display:grid;grid-template-columns:110px 1fr;gap:0;margin:14px 0;
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.matrix .h{background:#f0f2f6;font-size:12.5px;font-weight:600;padding:8px 12px;border-bottom:1px solid var(--line)}
+.matrix .k{font-size:13px;font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--ink2)}
+.matrix .v{font-size:13px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.matrix > div:nth-last-child(-n+2){border-bottom:none}
+.five{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0}
+.five div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12.5px;text-align:center}
+.five div b{display:block;font-size:13px;margin-bottom:3px}
+footer{margin-left:278px;padding:0 40px 60px;color:var(--ink3);font-size:12.5px;max-width:1080px}
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h1>VOICE 架构优化方案</h1>
+  <div class="sub">MCU 固件 + Android App 的架构层改进<br>不含传感器实现细节</div>
+
+  <div class="grp">判断依据</div>
+  <a href="#c0">0 · 先定义什么算架构问题</a>
+  <a href="#c1">1 · 现状依赖全景</a>
+
+  <div class="grp">问题清单（5 类）</div>
+  <a href="#c2">2 · A 契约类（最危险）</a>
+  <a href="#c3">3 · B 边界类</a>
+  <a href="#c4">4 · C 可测类</a>
+  <a href="#c5">5 · D 可演进类</a>
+  <a href="#c6">6 · E 可观测类</a>
+
+  <div class="grp">目标架构</div>
+  <a href="#c7">7 · MCU 目标文件树</a>
+  <a href="#c8">8 · Android 目标分层</a>
+  <a href="#c9">9 · 五个关键机制</a>
+
+  <div class="grp">落地</div>
+  <a href="#c10">10 · 迁移批次</a>
+  <a href="#c11">11 · 优先级矩阵</a>
+  <a href="#c12">12 · 不做清单</a>
+</nav>
+
+<main>
+
+<h2 id="c0"><span class="n">0</span>先定义什么算架构问题</h2>
+
+<div class="lead">
+不先把标尺定下来，讨论会滑向"代码风格"。
+本文只用五个维度判断一件事是不是<strong>架构问题</strong>，凡是风格偏好一律不列。
+</div>
+
+<div class="five">
+<div><b>边界</b>依赖方向是否单向<br>有没有循环</div>
+<div><b>契约</b>同一事实是否只有一个定义源<br>漂移能否被发现</div>
+<div><b>可测</b>核心逻辑能否脱离硬件运行</div>
+<div><b>可演进</b>加一个功能要改几处<br>能否按需裁剪</div>
+<div><b>可观测</b>现场出故障能否定位</div>
+</div>
+
+<p>这五个维度里，<strong>契约类问题的危害远大于其它四类</strong>：其余四类最多让开发变慢，契约类会直接产生错误行为。所以下面按这个顺序排。</p>
+
+<h2 id="c1"><span class="n">1</span>现状依赖全景</h2>
+
+<table>
+<tr><th style="width:150px">位置</th><th style="width:80px">规模</th><th>架构角色（现状）</th></tr>
+<tr><td><code>VOICE_V307/User/main.c</code></td><td>305 行</td><td><b>入口 + 模式分发 + 5 个模式的完整实现</b></td></tr>
+<tr><td><code>VOICE_V307/Phone/</code></td><td>17 个 .c</td><td>业务 + 驱动 + 试验代码混在一个目录</td></tr>
+<tr><td><code>VOICE_V307/Common/</code></td><td>3 个 .c/.h</td><td>引脚配置 + GPIO 抽象 + 一半的时钟 API</td></tr>
+<tr><td><code>VoiceAccessibilityService.java</code></td><td>2208 行<br>71 个 static</td><td><b>事件入口 + 页面判定 + 节点收集 + 焦点导航 + 滚动算法 + 红框 + 学习模式 + 微信通话 + 手势模拟</b></td></tr>
+<tr><td><code>MainActivity.java</code></td><td>1503 行</td><td><b>视图 + 状态机 + 命令分发 + 校准 UI + 悬浮窗 + 学习流程 + 波形</b></td></tr>
+<tr><td>其余 13 个 Java 类</td><td>1971 行</td><td>适配器 / 工具 / 自定义 View（已经做过一轮重构）</td></tr>
+</table>
+
+<p class="note" style="margin:12px 0"><b>两个数字说明问题</b>
+MCU 侧 <code>main.c</code> 一个文件承担了三层职责；
+Android 侧两个文件占全部 5682 行的 <b>65%</b>（3711 行）。
+其余文件都还健康 —— <mark>说明架构问题集中在两个"上帝文件"上，而不是弥漫全项目</mark>。这是好消息：改动面是可控的。</p>
+
+<div class="note"><b>Android 侧其实已经做过一轮架构重构</b>
+从 <code>4ff40a0</code> 那次提交看，已经抽出了 <code>AppConstants</code> / <code>NodeHelper</code> / <code>GestureHelper</code> / <code>WechatCallController</code> / <code>AppAdapter</code> 体系
+（<code>VoiceAccessibilityService</code> 从 2249 行降到后来的规模）。
+所以下面提的不是"从零做架构"，而是<strong>把那一轮没做完的部分补上</strong>。</div>
+
+<h2 id="c2"><span class="n">2</span>A 契约类问题（最危险）</h2>
+
+<h3>A1 <span class="tag t-drift">已漂移</span>无障碍事件类型：XML 配置与代码期望不一致</h3>
+
+<pre>res/xml/accessibility_service_config.xml:
+    accessibilityEventTypes = typeViewClicked | typeWindowStateChanged | typeWindowContentChanged
+
+VoiceAccessibilityService.java:132:
+    if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+        lastScrollEventTime = System.currentTimeMillis();      <span class="c">// 期望收到滚动事件</span>
+    }
+</pre>
+
+<p><b>事实</b>：<code>accessibilityEventTypes</code> 是<strong>系统侧过滤器</strong>，不在掩码里的事件类型根本不会投递。配置里没有 <code>typeViewScrolled</code>，所以第 132 行<strong>永远不会执行</strong>，<code>lastScrollEventTime</code> 只能由 <code>waitForScrollIdle()</code>（第 1963 行）自己初始化。</p>
+
+<div class="warn"><b>影响评估：功能仍可用，但"事件驱动"这个优化没有生效</b>
+<code>checkScrollIdle()</code>（第 1927 行）除了 300ms 时间门外，还有 <b>posHash 两次读取比对</b>作为兜底判据，所以滚动停止检测<strong>依然能工作</strong>，只是退化成"300ms + 100ms 轮询"。
+<b>真正的危害是认知漂移</b>：更新记录第九十七轮把这件事记作"滑动停止检测改为事件驱动"，代码注释也这么写，而实际是轮询。后来人据此推理会得出错误结论。<br>
+<b>二选一修掉</b>：① 补上 <code>typeViewScrolled</code> 订阅（但要让 <code>onAccessibilityEvent</code> 的三个前置调用足够廉价，否则事件量激增会拖慢服务）；② 明确改注释与文档，承认它是轮询。
+<mark>不要保留"文档说 A、代码是 B"的状态。</mark></div>
+
+<h3>A2 <span class="tag t-drift">已漂移</span>包可见性：<code>&lt;queries&gt;</code> 与 <code>KNOWN_APPS</code> 不一致</h3>
+<table>
+<tr><th style="width:230px">来源</th><th style="width:90px">包数量</th><th>差异</th></tr>
+<tr><td><code>AndroidManifest.xml</code> 的 <code>&lt;queries&gt;</code></td><td>9</td><td rowspan="2">queries 缺少：爱奇艺 <code>com.qiyi.video</code>、腾讯视频 <code>com.tencent.qqlive</code>、优酷 <code>com.youku.phone</code>、番茄 <code>com.dragon.read</code>、起点 <code>com.qidian.QDReader</code></td></tr>
+<tr><td><code>MainActivity</code> 的 <code>KNOWN_APPS</code></td><td>14</td></tr>
+</table>
+<p>而且同时声明了 <code>QUERY_ALL_PACKAGES</code> 权限 —— 与显式 <code>&lt;queries&gt;</code> 是<strong>两套重复手段</strong>，且会触发应用商店的政策审查。包可见性策略处于"没想清楚"的状态。</p>
+
+<h3>A3 <span class="tag t-drift">已漂移</span>协议常量在 6 处各写一份，且无版本协商</h3>
+<table>
+<tr><th style="width:60px">#</th><th style="width:330px">位置</th><th>内容</th></tr>
+<tr><td>1</td><td><code>mic_hum.h</code> 的 <code>HUM_CMD_*</code> 枚举</td><td>内部命令码</td></tr>
+<tr><td>2</td><td><code>phone_control.c:313-328</code> 的映射 switch</td><td>内部码 → AOA 字节</td></tr>
+<tr><td>3</td><td><code>phone_control.c:55-74</code> 的串口菜单打印</td><td>人读的对照表</td></tr>
+<tr><td>4</td><td><code>phone_control.c:9-40</code> 的文件头注释</td><td>又一份对照表</td></tr>
+<tr><td>5</td><td><code>MainActivity.java:56-67</code> 的 <code>CMD_*</code></td><td>App 侧常量</td></tr>
+<tr><td>6</td><td>App 里各 <code>handleDefaultCommand</code> 的 <code>case</code> 标签</td><td>实际使用点</td></tr>
+</table>
+<p><b>没有版本协商</b>：MCU 在 AOA 识别字符串里报了 <code>AOA_VERSION "1.0"</code>，但那是给系统看的；App 侧 <code>versionName "1.0"</code> 是给自己的。两者之间<strong>没有任何运行时的协议版本握手</strong>，一旦只刷了一边，故障现象是"命令乱执行"，而不是"明确报错"。</p>
+
+<h3>A4 <span class="tag t-drift">已漂移</span>板级引脚：代码 / 文档 / 原理图三处各一份</h3>
+<p>已在上一份报告详述（PB5 冲突、SD 卡检测 PC6 vs PD0）。这里只补一条<strong>结构性结论</strong>：
+<ul>
+<li><code>Config.h</code> 只有 OLED 片选一处做了板型区分，其余标注"板无关"—— 但引脚接在哪本质上是板决定的</li>
+<li>缺失的板级事实：<code>PWR_CTRL</code>、<code>LED</code>、<code>SD_CD</code>、HC-05、ESP8266、CH340、模拟开关、以及"CTRL0/CTRL1 由机械开关控制、软件不可见"这条关键约束</li>
+<li>没有任何机制能在"代码与实物漂移"时报警</li>
+</ul>
+
+<h3>A5 <span class="tag t-drift">已漂移</span>编译期宏的影响面没有声明</h3>
+<p><code>TEST_MODE</code> 出现在 <strong>5 个文件</strong>里做条件编译：<code>main.c</code>、<code>usb_desc.c</code>、<code>ch32v30x_usbfs_device.c</code>、<code>usbhs_dev.c</code>、<code>mode.h</code>。
+没有任何地方列出"某个取值会让哪些文件走哪条分支"。加一个模式需要通读全工程搜索。</p>
+
+<h3>A6 构建包含靠文件扩展名，不靠特性开关</h3>
+<pre>obj/Phone/subdir.mk 无条件编译 17 个 .c，含 ff.c(6982行) + ffunicode.c(15593行)
+排除手段：把文件重命名成 .bak    ← usbhs_dev.c/h.bak、ch32v30x_usbfs_host.c.bak
+原因：MounRiver Studio 会重新生成 subdir.mk，手工编辑会被覆盖
+</pre>
+<div class="why"><b>这一条我要说清楚危害边界，避免夸大</b>
+由于工程开启了 <code>-ffunction-sections -fdata-sections -Wl,--gc-sections</code>，未引用的代码与数据<strong>确实会被链接器丢弃</strong>
+（我核对过 map，<code>sdio_test.o</code> 的两个 16 KB 缓冲区落在 "Discarded input sections" 里）。
+实测占用约 <b>FLASH 10% / RAM 16%</b>（<code>TEST_MODE=2</code> 构建：<code>.text</code> 25100 B + <code>.vector</code> 444 B / 256 KB，<code>.bss</code> 8416 B + <code>.data</code> 320 B + 栈 2048 B / 64 KB），<b>资源不是问题</b>。<br>
+真正的代价是：<b>编译时间</b>（每次全量编 2 万多行 FatFs）、<b>警告噪音</b>、以及"某文件到底参与哪个构建"这件事没有任何声明可查。
+<br><br>注：这个数字<strong>随 <code>TEST_MODE</code> 变化</strong>（换模式后实测 .text 在 24~25 KB 之间浮动），引用时务必标注是哪次构建。</div>
+
+<h2 id="c3"><span class="n">3</span>B 边界类问题</h2>
+
+<h3>B1 MCU：<code>main.c</code> 承担三层职责</h3>
+<p>305 行里，<code>TEST_MODE 2</code> 的 U 盘逻辑 46 行、<code>TEST_MODE 3</code> 的 FatFs 读取 84 行、<code>TEST_MODE 5</code> 的摇杆鼠标 66 行 —— <strong>这些是完整的功能实现，不是初始化</strong>。对照 H417 版：<code>main.c</code> 只有 59 行，模式分发在 <code>hardware.c</code> 的 <code>Hardware()</code> 里。</p>
+
+<h3>B2 MCU：时钟使能 API 被拆在两个文件</h3>
+<table>
+<tr><th style="width:280px">API</th><th>所在文件</th></tr>
+<tr><td><code>GPIO_ClockEnable()</code></td><td><code>Common/hal_gpio.c</code></td></tr>
+<tr><td><code>SPI_ClockEnable()</code> / <code>DMA_ClockEnable()</code> / <code>AFIO_ClockEnable()</code></td><td><code>Common/Config.c</code></td></tr>
+</table>
+<div class="danger"><b>这正是"忘记开时钟"那个坑的结构性根源</b>
+<code>Hal_GPIO_Init()</code> 不自动开时钟，而它<strong>无法</strong>顺手调用 SPI/DMA 的时钟函数 —— 因为那些函数在另一个文件里，而且没有任何统一入口。
+所以只能靠每个调用点手写 5~10 行 <code>ClockEnable</code>（<code>mic_hum.c:469-478</code> 就是典型）。
+<b>把 API 收拢到一处，这类 bug 会整类消失。</b></div>
+
+<h3>B3 MCU：业务层直接操作芯片寄存器</h3>
+<pre><span class="c">// mic_hum.c:481   业务层直接读写 AFIO 寄存器来释放 JTAG</span>
+AFIO-&gt;PCFR1 = (AFIO-&gt;PCFR1 &amp; ~AFIO_PCFR1_SWJ_CFG) | AFIO_PCFR1_SWJ_CFG_JTAGDISABLE;
+
+<span class="c">// phone_control.c:52   业务层直接改 UART 寄存器</span>
+USART1-&gt;CTLR1 |= USART_Mode_Rx;
+</pre>
+<p>两处都应该是 HAL 函数。第二条更严重：它把业务层和"具体是哪个 UART、哪个引脚"绑死了。</p>
+
+<h3>B4 MCU：<code>hal_gpio</code> 无条件独占全部 EXTI 向量</h3>
+<p><code>hal_gpio.c:159-220</code> 定义了 7 个处理函数（<code>EXTI0..4</code> / <code>EXTI9_5</code> / <code>EXTI15_10</code>），
+实测它们<strong>全部进入最终镜像</strong>（<code>.vector</code> 直接引用，gc-sections 收不掉），而全项目<strong>从未调用过</strong> <code>Hal_GPIO_IRQ_*</code>。</p>
+<p>危害不在 flash（几百字节），而在于：<strong>集成任何自带 EXTI 处理的第三方驱动都会重复符号链接失败</strong>；而走 HAL 的回调接口又丢失了上下文（回调签名 <code>void(*)(void)</code> 无参数）。</p>
+
+<h3>B5 Android：71 个 static、其中 54 个 public static —— 全局单例式架构</h3>
+<pre>MainActivity 调用无障碍层的实际形态：
+    VoiceAccessibilityService.focusNext();
+    VoiceAccessibilityService.clickFocused();
+    VoiceAccessibilityService.getForegroundPkg();
+    VoiceAccessibilityService.isBiliFullscreen();
+    WechatIds.isChatItem(viewId);
+    ...
+</pre>
+<p>模块之间<strong>不是通过接口交互，而是通过全局静态方法</strong>。后果：</p>
+<ul>
+<li>无法替换实现（想给 <code>focusNext</code> 写个假实现做测试，做不到）</li>
+<li>依赖关系不可见 —— 看 <code>MainActivity</code> 的构造函数完全不知道它依赖无障碍层</li>
+<li>静态可变状态（<code>wechatNavMode</code>、<code>showMarkerEnabled</code>、<code>sCollectedEvents</code>）跨 Activity 存活，生命周期难以推理</li>
+</ul>
+
+<h3>B6 Android：SharedPreferences 键名跨文件硬编码</h3>
+<pre>MainActivity.java:1148-1151              VoiceAccessibilityService.java:1569-1572
+prefs.getInt("calib_top_" + curPkg, ...)  sp.getInt("calib_top_" + pkg, ...)
+prefs.getInt("calib_bot_" + curPkg, ...)  sp.getInt("calib_bot_" + pkg, ...)
+prefs.getInt("calib_centerTop_" ...)      sp.getInt("calib_centerTop_" ...)
+prefs.getInt("calib_centerBot_" ...)      sp.getInt("calib_centerBot_" ...)
+</pre>
+<p><b>写入方和读取方各自拼接同一套键名</b>。任何一方改名（哪怕只改一个字母）都会静默失配 —— 校准线的表现会变成"调了没用"，而不会有任何报错。
+键名同时还有 <code>voice_ctrl</code> 与 <code>wechat_ids</code> 两个不同的 prefs 文件、以及 <code>app_*</code> 系列的拼接式键，全项目共 <b>20 余种键名</b>散落在 4 个文件里。</p>
+
+<h3>B7 Android：两个 AccessibilityService 同时注册，原因无记录</h3>
+<pre>&lt;service android:name=".VoiceAccessibilityService" ... /&gt;
+&lt;service android:name="com.google.android.accessibility.selecttospeak.SelectToSpeakService"
+         android:exported="true"&gt;
+    &lt;intent-filter android:priority="10000"&gt; ... &lt;/intent-filter&gt;
+&lt;/service&gt;
+</pre>
+<p>第二个服务是个空实现（<code>SelectToSpeakService.java</code> 33 行），存在的理由是"绕过微信节点混淆"。
+但从清单里看不出任何原因，且它 <code>exported="true"</code> + 优先级 10000 —— <strong>一个架构上的非常规手段，却没有任何注释解释为什么需要它、什么时候可以移除</strong>。</p>
+
+<h2 id="c4"><span class="n">4</span>C 可测类问题</h2>
+
+<h3>C1 MCU：全项目零测试，且最复杂的逻辑被钉在硬件上</h3>
+<p><code>mic_process</code>（170 行，5 状态机 + 3 层组合判定）是全项目最需要测试的代码，但它和 DMA 中断、全局变量绑在一起，<strong>在 PC 上跑不起来</strong>。</p>
+<p>而它其实完全可以测 —— 输入是一个 <code>(blowing, energy)</code> 序列，输出是命令序列，<strong>没有任何硬件依赖</strong>。这是"零成本可获得的最高收益"。</p>
+
+<h3>C2 Android：<code>app/src/test</code> 目录根本不存在</h3>
+<pre>app/build.gradle 里声明了：
+    testImplementation 'junit:junit:4.+'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
+
+实际目录：
+    app/src/main          ← 只有这个
+    （没有 app/src/test，也没有 app/src/androidTest）
+</pre>
+<p>依赖声明了但从未使用。而项目里有<strong>大量不需要设备就能测的纯逻辑</strong>：</p>
+<table>
+<tr><th style="width:250px">可测的纯逻辑</th><th>为什么能脱离设备测</th></tr>
+<tr><td><code>UsbAccessoryManager.readLoop</code> 的三态解析</td><td>输入是字节流，输出是回调序列 —— 抽成 <code>FrameDecoder</code> 类即可纯测</td></tr>
+<tr><td><code>avgNoExtremes</code>（去极端平均）</td><td>纯函数</td></tr>
+<tr><td><code>Calibration</code> 的键名生成</td><td>纯字符串逻辑（也可反过来验证 B6 的失配）</td></tr>
+<tr><td><code>WechatIds</code> 的匹配规则</td><td>纯字符串逻辑</td></tr>
+<tr><td><code>&lt;queries&gt;</code> vs <code>KNOWN_APPS</code> 一致性</td><td>读 XML + 读常量比对，<b>能在 JVM 单测里跑</b></td></tr>
+</table>
+
+<h3>C3 MCU：没有宿主端构建路径</h3>
+<p>全部代码只能用 MounRiver 的 riscv 工具链编译。<code>mic_process</code> 这类没有硬件依赖的代码，也应该能用宿主 gcc 编译并跑测试。</p>
+
+<h2 id="c5"><span class="n">5</span>D 可演进类问题</h2>
+
+<h3>D1 <code>mode.h</code> 用单个魔法数字表达 6 种编译配置</h3>
+<pre>#define TEST_MODE           5
+/* 0=正常运行 1=SDIO测试 2=U盘 3=FAT读 4=USBHS枚举调试 5=HID键鼠 */
+</pre>
+<p>问题不在"用宏"，在于：<code>0</code> 表示"正式功能"却排在最后；6 种配置<strong>互斥</strong>，无法表达"要 AOA + 也要 HID"这种组合；宏值散落 5 个文件。</p>
+
+<h3>D2 MCU：没有串口抽象层</h3>
+<table>
+<tr><th style="width:200px">能力</th><th style="width:230px">H417 版 <code>Serial.c</code>（452 行）</th><th>V307 现状</th></tr>
+<tr><td>结构</td><td>控制块 + 双实例表，配置数据驱动</td><td>无</td></tr>
+<tr><td>RX</td><td>DMA + 空闲中断自动分帧，双缓冲</td><td><code>phone_control.c:199</code> 主循环轮询，一次 1 字节</td></tr>
+<tr><td>TX</td><td>DMA 环形缓冲 + 溢出计数</td><td><code>debug.c</code> 阻塞 <code>printf</code></td></tr>
+<tr><td>中断组织</td><td><code>USART_IRQ_Handler(port)</code> 单函数多实例</td><td>无（靠轮询）</td></tr>
+</table>
+<div class="warn"><b>这个差距有实际后果</b>
+<code>mic_hum.c</code> 在每 8ms 的 tick 上可能打印，<code>Mic_Hum_TestLoop</code> 更是每 tick 一行。
+2 Mbps 下打印 60 字节约 0.3ms，<b>而这是阻塞的</b> —— 会直接挤压主循环节奏，影响命令响应时延。</div>
+
+<h3>D3 MCU：没有帧协议层</h3>
+<p>H417 侧有完整的 <code>voice_protocol</code>（AA55 帧头 + 0x7D 转义 + checksum16 + 请求/应答配对 + 错误码 + 回调分发）；
+V307 侧靠"某几个字节恰好不会出现在数据里"来保证不歧义（<code>phone_control.c:244-278</code> 手写 4 状态解析器，无校验、无转义）。<strong>一旦要传带载荷的命令（比如让 App 下发包名），这套裸协议立刻失效。</strong></p>
+
+<h3>D4 Android：两个上帝类</h3>
+<p><code>VoiceAccessibilityService</code> 一个类里塞了 9 件事：事件入口 / 页面判定 / 节点收集 / 焦点导航 / 滚动算法 / 红框绘制 / 学习模式 / 微信通话 / 手势模拟。<br>
+<code>MainActivity</code> 塞了 7 件事：视图绑定 / 应用扫描 / SELECT-CONTROL 状态机 / 命令分发 / 校准 UI / 悬浮窗 / 学习流程。<br>
+上一轮重构已经把 <strong>适配器</strong> 和 <strong>微信通话</strong> 抽出去了，剩下的这些还没抽。</p>
+
+<h3>D5 没有"板型能力声明"</h3>
+<p>现在判断"这块板有什么"只能靠 <code>#ifdef BOARD_V3</code> 逐个外设判断。缺少一张"板 → 能力"的对照表，导致：</p>
+<ul>
+<li>加一块新板要通读 <code>Config.h</code> 才能知道要定义哪些宏</li>
+<li>无法在编译期发现"代码用了这块板没有的外设"</li>
+<li>H417 侧的配置空间是 <b>2(核) × 2(板) × 3(模式) = 12 种组合</b>，而代码里没有任何地方声明哪些组合是有效的</li>
+</ul>
+
+<h2 id="c6"><span class="n">6</span>E 可观测类问题</h2>
+
+<h3>E1 没有任何运行时计数器</h3>
+<p>用户在现场说"吹气不灵"，能拿到的只有串口日志。而这些问题都无法回答：</p>
+<table>
+<tr><th style="width:280px">问题</th><th>需要的计数器（现在都没有）</th></tr>
+<tr><td>命令丢了吗？丢了几条？</td><td><code>s_cmd_queue</code> 满时丢弃计数（<code>mic_hum.c:80</code> 静默 return）</td></tr>
+<tr><td>AOA 断连重连过几次？</td><td>重连次数、失败次数</td></tr>
+<tr><td>传感链路重启过吗？</td><td>全零重启次数（现在只有 <code>printf</code>）</td></tr>
+<tr><td>采集模式超时过吗？</td><td>采集超时计数</td></tr>
+</table>
+
+<h3>E2 打印无级别，出货固件与调试固件行为相同</h3>
+<pre>// micro: 没有 LOG_LEVEL / DEBUG_PRINTF 之类的编译开关
+// 正式 TEST_MODE=0 构建里 printf 全量开启
+</pre>
+
+<h3>E3 排障时可能压根没有日志通道</h3>
+<p>串口 USART1 经模拟开关 U4 在 <b>CH340 / ESP8266 / MCU</b> 三者间切换，而控制脚 <code>CTRL0</code> 由一个<b>机械拨动开关 SW3</b> 驱动 —— 软件看不到开关状态。
+如果现场开关被拨到 ESP8266 一侧，<mark>整个串口日志通道消失，且现场无法判断原因</mark>。</p>
+
+<h2 id="c7"><span class="n">7</span>MCU 目标文件树</h2>
+
+<p>设计原则：<strong>基础设施按层分，业务按模块分，试验按类型分</strong>。依赖方向严格单向：<code>Board → Hal → Drivers → Sense → App → User</code>。</p>
+
+<pre>VOICE_V307/
+├── Board/                  ★板级：唯一真源
+│   ├── board.h                   引脚 + 外设实例 + 板型能力宏
+│   ├── board_v3.c                V3 板初始化（PWR_CTRL / LED / OLED 片选）
+│   └── board_check.c             ★启动自检：把隐式契约变成断言
+├── Hal/                    硬件抽象（不依赖任何业务）
+│   ├── hal_gpio.c/h              （去掉 EXTI，加合法性断言）
+│   ├── hal_exti.c/h              ★从 hal_gpio 拆出，按需编译
+│   ├── hal_clock.c/h             ★新增：统一时钟入口
+│   └── hal_serial.c/h            ★新增：DMA 收发 + 环形缓冲
+├── Drivers/                器件驱动（不依赖业务）
+│   ├── ads1115.c/h   adc_scan.c/h   joystick.c/h
+│   ├── oled.c/h      oled_font.h
+│   └── sdio_sd.c/h   diskio.c   ff.c  ffunicode.c
+├── Sense/                  传感语义（可整体替换）
+│   ├── sense_if.h                ★传感层统一接口
+│   └── gesture.c/h               ★双极性手势状态机（纯逻辑，可宿主编译）
+├── Usb/                    USB 栈
+│   ├── aoa_host.c/h    usb_desc.c/h
+│   ├── usbfs_device.c/h   sw_udisk.c/h   usbhs_dev.c/h
+│   └── host/                     原 USB_Host/ 目录
+├── App/                    业务编排
+│   ├── app_config.h              ★特性开关（替代 mode.h）
+│   ├── protocol.h                ★协议单一真源（生成物，勿手改）
+│   ├── hardware.c/h              ★模式分发（从 main.c 搬出）
+│   └── phone_control.c/h
+├── Test/                   ★试验模式各自独立文件
+│   ├── t_sdio_bench.c   t_udisk.c    t_fatfs.c
+│   └── t_hid_mouse.c    t_usbhs_enum.c
+├── User/                   main.c（目标 &lt; 80 行）+ 中断向量
+├── Peripheral/ Core/ Debug/      WCH 库（不动）
+└── tools/                  ★构建期工具
+    ├── gen_protocol.py           protocol.json → protocol.h + Protocol.java
+    └── check_board.py            电路.txt → board.h 的核对报告
+</pre>
+
+<div class="note"><b>关键是把"一个文件扛三层"这个模式破掉</b>
+<code>main.c</code> → <code>User/main.c</code>（入口）+ <code>App/hardware.c</code>（分发）+ <code>Test/t_xxx.c</code>（实现）。<br>
+<code>Phone/</code> 一个目录 → <code>Drivers/</code> + <code>Sense/</code> + <code>Usb/</code> + <code>App/</code> 四个按职责分的目录。<br>
+<code>Common/</code> → <code>Board/</code> + <code>Hal/</code>，把"板级事实"和"硬件抽象"分开。</div>
+
+<h2 id="c8"><span class="n">8</span>Android 目标分层</h2>
+
+<pre>com.voice.control/
+├── App.java                      轻量装配（持有 ConfigStore / UsbLink）
+├── core/
+│   ├── Protocol.java             ★协议常量（生成物，勿手改）
+│   ├── ConfigStore.java          ★所有 SharedPreferences 键的唯一入口
+│   ├── Calibration.java          ★校准线唯一读写点（消除 B6）
+│   └── Logger.java               统一日志开关（对应 E2）
+├── usb/
+│   ├── FrameDecoder.java         ★从 readLoop 抽出的纯类，可单测
+│   ├── UsbLink.java              连接管理（原 UsbAccessoryManager）
+│   └── UsbLinkService.java       前台服务，App 重启不丢连接（需实测）
+├── input/
+│   ├── KeyRouter.java            ★SELECT/CONTROL 状态机（从 Activity 抽出）
+│   └── LearnedGesture.java       已学习的手势特征读写
+├── a11y/
+│   ├── A11yService.java          事件入口 + 分发（目标 &lt; 300 行）
+│   ├── FocusNavigator.java       focusStep + 节点收集 + 排序
+│   ├── ScrollAligner.java        scrollToVisible 自适应滚动
+│   ├── Highlighter.java          红框绘制
+│   ├── ScreenProbe.java          页面判定（isBiliFullscreen / isWechatMomentsPage ...）
+│   ├── wechat/                   WechatIds / CallController / 页面分流收集器
+│   └── adapters/                 AppAdapter + Bili / Wechat / Ximalaya
+├── ui/
+│   ├── MainActivity.java         只做视图绑定 + 用户操作
+│   ├── SettingsPage.java
+│   └── widget/                   BlowBarView / CalibrationLineView
+└── (app/src/test/)               ★JVM 单测（现在不存在）
+</pre>
+
+<p>这份结构里，<strong>只有 4 个类是"新增/大改"</strong>（<code>Protocol</code>、<code>ConfigStore</code>、<code>Calibration</code>、<code>FrameDecoder</code>），
+其余都是从现有上帝类里<strong>搬</strong>出来 —— 逻辑照抄，不改行为。这是 Android 侧改动风险可控的关键。</p>
+
+<h2 id="c9"><span class="n">9</span>五个关键机制</h2>
+
+<h3>机制 1 · 单一真源 + 生成器</h3>
+<pre><span class="c">tools/protocol.json                        ← 唯一手写的地方</span>
+{
+  "version": 2,
+  "commands": [
+    {"name": "ENTER",  "value": "0x02"},
+    {"name": "BACK",   "value": "0x03"},
+    ...
+  ],
+  "params": [ {"id": 0, "name": "TH_HIGH"}, ... ],
+  "packets": [ {"head": "0xFE", "len": 5, "name": "ENERGY"}, ... ]
+}
+<span class="c">        │  gen_protocol.py</span>
+        ├──→  VOICE_V307/App/protocol.h          （C 枚举 + 映射表）
+        └──→  voice_control/.../core/Protocol.java（Java 常量）
+             并同时生成 PROTO_VERSION，MCU 在 AOA 识别字符串里带上、App 启动时比对
+</pre>
+<p>收益：加一个命令从"改 6 处"变成"改 1 处 + 跑一次生成器"；且版本号让"只刷了单边"这种情况<strong>从乱执行变成明确报错</strong>。</p>
+
+<h3>机制 2 · 板级定义单一真源 + 自动核对</h3>
+<pre><span class="c">tools/check_board.py</span>
+读 电路.txt（嘉立创 EDA JSON）的网表  →  与 Board/board.h 的宏逐脚比对
+输出三类结论：
+  ① 宏指向的引脚在网表里是否存在、连到了什么
+  ② 网表里有、board.h 没定义的重要器件（如 HC-05 / ESP8266 / PWR_CTRL）
+  ③ 同一引脚在 board.h 里被两个外设占用（如 PB5 的 I2S3_SD 与 PWR_CTRL）
+</pre>
+<p>这个脚本我已经用一次性代码跑过一遍（就是前两份报告里那些表），<strong>脚本化之后每次改板子跑一次即可</strong>。这是唯一能让"代码与实物"不再漂移的手段。</p>
+
+<h3>机制 3 · 特性开关替代编译模式</h3>
+<pre><span class="c">/* App/app_config.h —— 可组合，不再是互斥的数字 */</span>
+#define FEAT_SENSE_PRESSURE  1
+#define FEAT_SENSE_MIC       0
+#define FEAT_USB_AOA         1
+#define FEAT_UDISK           0
+#define FEAT_HID_MOUSE       0
+#define FEAT_SD_BENCH        0
+</pre>
+<pre><span class="c">/* 每个 .c 文件体整体用开关包住 */</span>
+#include "app_config.h"
+#if FEAT_UDISK
+... 全部 U 盘模式代码 ...
+#endif
+</pre>
+<pre><span class="c">/* obj/makefile 用 ifeq 决定加入哪些 .o，不再靠改 .bak */</span>
+ifeq ($(FEAT_FATFS),1)
+OBJS += ./Drivers/ff.o ./Drivers/diskio.o
+endif
+</pre>
+<p>三个收益：不再需要 <code>.bak</code> 排除法；编译时间随特性裁剪；"某文件属于哪个构建"从"靠搜索"变成"看开关"。</p>
+
+<h3>机制 4 · 把隐式契约变成可校验的断言</h3>
+<table>
+<tr><th style="width:180px">契约</th><th style="width:230px">校验手段</th><th>成本</th></tr>
+<tr><td>引脚宏与实物一致</td><td><code>check_board.py</code>（机制 2）</td><td>半天写脚本</td></tr>
+<tr><td>协议两边一致</td><td><code>protocol.json</code> 生成 + 版本号比对</td><td>半天写生成器</td></tr>
+<tr><td>MCU 启动时外设真的在</td><td><code>Board_Check()</code>：读 ADS1115 应答 / OLED 初始化 / USB 枚举，失败在 OLED 显示错误码</td><td>半天</td></tr>
+<tr><td>Android 订阅的事件类型覆盖代码所需</td><td><code>A11yService.onServiceConnected()</code> 里读 <code>getServiceInfo().eventTypes</code>，与代码期望的掩码比对，不匹配就 Toast（<b>这是运行时能读到的</b>）</td><td>1 小时</td></tr>
+<tr><td><code>&lt;queries&gt;</code> 与 <code>KNOWN_APPS</code> 一致</td><td>JVM 单测：读 XML + 读常量比对（<b>不需要设备</b>）</td><td>1 小时</td></tr>
+<tr><td>构造合法性</td><td><code>Hal_GPIO_Init</code> 加 <code>pin &gt; 15</code> / <code>port &gt;= NUM_PORTS</code> 断言</td><td>10 分钟</td></tr>
+</table>
+
+<h3>机制 5 · 让核心逻辑脱离硬件</h3>
+<div class="grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px">
+<div style="font-weight:600;font-size:13.5px;margin-bottom:4px">MCU：手势状态机宿主单测</div>
+<div style="font-size:12.5px;color:var(--ink2);line-height:1.65">
+<code>Sense/gesture.c</code> 输入是 <code>(zone, value)</code> 序列，输出是命令序列，<b>零硬件依赖</b>。<br>
+用宿主 gcc 编一个 <code>test_gesture.c</code>：注入"吹 20 tick 停 10 tick"，断言输出 <code>short</code>；
+注入"吹 100 tick"，断言连续输出 <code>hold</code>。<br>
+<b>这是全项目收益最高的一次测试投入。</b></div></div>
+<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px">
+<div style="font-weight:600;font-size:13.5px;margin-bottom:4px">Android：先建 4 个 JVM 单测</div>
+<div style="font-size:12.5px;color:var(--ink2);line-height:1.65">
+① <code>FrameDecoder</code> 的字节流解析（含跨包、半包）<br>
+② <code>&lt;queries&gt;</code> 与 <code>KNOWN_APPS</code> 一致性<br>
+③ <code>Calibration</code> 键名生成（反证 B6）<br>
+④ <code>WechatIds</code> 匹配规则<br>
+<b>都不需要设备，<code>./gradlew test</code> 就能跑。</b></div></div>
+</div>
+
+<h2 id="c10"><span class="n">10</span>迁移批次</h2>
+
+<p>批次顺序按<strong>风险</strong>排，不按重要性排：先做无行为变更的，建立安全网之后再做有行为变更的。</p>
+
+<table>
+<tr><th style="width:62px">批次</th><th style="width:230px">内容</th><th style="width:80px">成本</th><th style="width:110px">行为变更</th><th>验收标准</th></tr>
+<tr><td><b>1</b></td><td><b>建立安全网</b><br>建 <code>app/src/test/</code>，写 4 个 JVM 单测</td><td>0.5 天</td><td class="ok">无</td><td><code>./gradlew test</code> 通过；<b>其中 A1/A2 两条会被测试暴露出来</b></td></tr>
+<tr><td><b>2</b></td><td><b>契约收拢</b><br><code>tools/protocol.json</code> + 生成器<br><code>ConfigStore.java</code> / <code>Calibration.java</code>（先只加不改）<br>补 <code>typeViewScrolled</code> 或改注释</td><td>1.5 天</td><td class="ok">无</td><td>生成物与现状<b>逐字节一致</b>才合入；键名收拢后旧代码不变仍可用</td></tr>
+<tr><td><b>3</b></td><td><b>MCU 边界</b><br><code>Board/board.h</code> 收拢<br><code>Hal/hal_clock.c</code> 新增<br><code>hal_exti</code> 从 <code>hal_gpio</code> 拆出<br><code>main.c</code> → <code>Hardware()</code> + <code>Test/</code><br><code>app_config.h</code> + makefile <code>ifeq</code></td><td>2.5 天</td><td class="mid">等价重构<br>（需编译验证）</td><td>各 TEST_MODE 逐个编译通过且 <code>.text</code> 尺寸不增；<code>main.c</code> &lt; 80 行</td></tr>
+<tr><td><b>4</b></td><td><b>传感层可测化</b><br><code>Sense/sense_if.h</code> 接口<br><code>gesture.c</code> 抽取 + 宿主单测</td><td>2 天</td><td class="ok">无</td><td>宿主 gcc 能编能跑；注入时序序列得到预期命令序列</td></tr>
+<tr><td><b>5</b></td><td><b>Android 边界</b><br><code>KeyRouter</code> / <code>Highlighter</code> / <code>Calibration</code> / <code>ScreenProbe</code> 从两个上帝类搬出</td><td>3 天</td><td class="mid">等价重构<br>（需真机验证）</td><td>两个上帝类行数各降 50%+；真机跑通 B站/微信/喜马拉雅三条主流程</td></tr>
+<tr><td><b>6</b></td><td><b>可观测性</b><br>MCU 计数器 + <code>Board_Check()</code><br><code>Protocol.java</code> 接入替换手写常量<br><code>hal_serial.c</code>（DMA 收发）</td><td>2 天</td><td class="mid">有变更</td><td>OLED 能显示错误码；日志不阻塞主循环</td></tr>
+</table>
+<p><b>合计约 11.5 天。</b>批次 1~4 是无行为变更或等价重构，可以放心合入；批次 5~6 需要真机验证。</p>
+
+<div class="note"><b>顺序上有一条容易被忽略的依赖</b>
+批次 4（<code>gesture.c</code> 可测化）<b>应该早于</b>任何传感器实现的改动。
+因为一旦换传感器，状态机要改；如果它还被钉在 DMA 中断里，<mark>改错一次要上板才能发现</mark>。
+先把单测建起来，后面改状态机就是"改代码 → 跑测试"而不是"改代码 → 烧板 → 观察"。</div>
+
+<h2 id="c11"><span class="n">11</span>优先级矩阵</h2>
+
+<table>
+<tr><th style="width:190px">项目</th><th style="width:80px">危害</th><th style="width:80px">成本</th><th style="width:130px">类别</th><th>建议</th></tr>
+<tr><td>A1 事件类型契约</td><td class="bad">高</td><td class="ok">1 小时</td><td>契约</td><td class="ok"><b>立即做</b></td></tr>
+<tr><td>A2 queries 与常量不一致</td><td class="mid">中</td><td class="ok">1 小时</td><td>契约</td><td class="ok"><b>立即做</b></td></tr>
+<tr><td>Hal_GPIO_Init 断言</td><td class="mid">中</td><td class="ok">10 分钟</td><td>契约</td><td class="ok"><b>立即做</b></td></tr>
+<tr><td>C2 建 JVM 单测</td><td class="bad">高</td><td class="ok">0.5 天</td><td>可测</td><td class="ok"><b>立即做</b>（后续一切的基础）</td></tr>
+<tr><td>A3 协议单一真源</td><td class="bad">高</td><td class="mid">0.5 天</td><td>契约</td><td>批次 2</td></tr>
+<tr><td>B6 键名收拢</td><td class="mid">中</td><td class="ok">0.5 天</td><td>边界</td><td>批次 2</td></tr>
+<tr><td>A4 板级单一真源</td><td class="bad">高</td><td class="mid">1 天</td><td>契约</td><td>批次 2~3</td></tr>
+<tr><td>B2 时钟 API 收拢</td><td class="mid">中</td><td class="ok">0.5 天</td><td>边界</td><td>批次 3</td></tr>
+<tr><td>B1 main.c 拆分</td><td class="mid">中</td><td class="mid">1 天</td><td>边界</td><td>批次 3</td></tr>
+<tr><td>C1 状态机宿主单测</td><td class="bad">高</td><td class="mid">2 天</td><td>可测</td><td>批次 4（<b>优先于传感器改动</b>）</td></tr>
+<tr><td>B5/B7 Android 静态耦合</td><td class="mid">中</td><td class="bad">3 天</td><td>边界</td><td>批次 5</td></tr>
+<tr><td>D2 串口抽象层</td><td class="mid">中</td><td class="mid">1.5 天</td><td>可演进</td><td>批次 6</td></tr>
+<tr><td>D3 帧协议层</td><td class="ok">低</td><td class="mid">1 天</td><td>可演进</td><td>批次 6（等有带载荷命令时再做）</td></tr>
+<tr><td>E1~E3 可观测性</td><td class="mid">中</td><td class="ok">1 天</td><td>可观测</td><td>批次 6</td></tr>
+<tr><td>A6 构建特性开关</td><td class="ok">低</td><td class="mid">1 天</td><td>契约</td><td>批次 3（顺带）</td></tr>
+<tr><td>D5 板型能力声明</td><td class="ok">低</td><td class="ok">0.5 天</td><td>可演进</td><td>批次 3（顺带）</td></tr>
+</table>
+
+<h2 id="c12"><span class="n">12</span>不做清单</h2>
+
+<table>
+<tr><th style="width:300px">不做</th><th>原因</th></tr>
+<tr><td>不引入 RTOS</td><td>当前是单循环 + 中断，把 DMA/I2C 全改成阻塞式后时序需求没有超出超级循环的能力。引入 RTOS 会让"为什么这么写"的原因全部需要重学，收益不成正比</td></tr>
+<tr><td>不在 MCU 侧引入 C++ / 模板</td><td>嵌入式这边 <code>-Os</code> + 手工内存管理的风格是稳定的，语言切换的收益是"更好看"，成本是整个工具链和习惯</td></tr>
+<tr><td>不为了架构而重写 AOA / USB 层</td><td>那部分刚刚稳定（坑 1~5 是反复实测才收敛的），<strong>重写的风险远大于收益</strong></td></tr>
+<tr><td>不给 Android 引入 MVVM / Hilt / Room</td><td>这个 App 只有一个 Activity、一个 Service，数据量极小。引入框架的收益是"符合教科书"，成本是构建时间、学习成本和排障难度。<b>只需要 <code>ConfigStore</code> 收拢配置就够</b></td></tr>
+<tr><td>不把 <code>WechatIds</code> 的自动提取改成离线工具</td><td>它的运行时提取虽然复杂，但正是应对微信版本变化的必要手段。要改的是"加注释说明为什么复杂"，而不是推翻</td></tr>
+<tr><td>不在同一次改动里既重构又加功能</td><td>批次 1~5 都是等价重构，夹杂新功能会让"回归"无法区分是重构引入的还是新功能引入的</td></tr>
+</table>
+
+<div class="note" style="margin-top:26px"><b>一句话总结</b>
+这个项目的架构问题<b>不是弥漫性的，而是集中在"契约没有单一真源"和"两个上帝文件"两点上</b>。
+所以最优路径是：<mark>先花 0.5 天建立测试安全网（顺带把 A1/A2 两条契约漂移暴露出来），再花 4.5 天做纯等价的结构搬迁，最后才动需要真机验证的部分</mark>。
+其中批次 4（把状态机从硬件里剥出来加单测）建议排在任何传感层改动之前 —— 它是后面所有改动的保险。</div>
+
+</main>
+
+<footer>
+本文档为架构方案，未修改任何工程文件。所有问题均附实际文件与行号证据；
+"资源占用"类结论均已核对链接器 map，未使用静态推断。凡标注"需实测"的部分需在真机上验证。
+</footer>
+
+</body>
+</html>

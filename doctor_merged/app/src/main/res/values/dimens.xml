@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="control_bar_padding">6dp</dimen>
+    <dimen name="param_chip_height">28dp</dimen>
+    <dimen name="control_button_height">32dp</dimen>
+    <dimen name="channel_label_height">28dp</dimen>
+    <dimen name="card_corner_radius">8dp</dimen>
+    <dimen name="card_elevation">2dp</dimen>
+    <dimen name="card_margin">3dp</dimen>
+    <dimen name="status_indicator_size">8dp</dimen>
+</resources>

@@ -1,0 +1,2 @@
+把串口助手保存的 CSP 数据 .txt / .log / .csv 文件放到这个 data 文件夹里。
+运行 train_csp_lr.py 会自动读取本文件夹下所有数据文件。

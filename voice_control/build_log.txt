@@ -1,0 +1,149 @@
+﻿Starting a Gradle Daemon, 6 incompatible and 8 stopped Daemons could not be reused, use --status for details
+
+> Configure project :app
+Unable to initialize metrics, ensure D:\InstallData\ProgrammingTools\AndroidStudio is writable, details: D:\InstallData\ProgrammingTools\AndroidStudio\analytics.settings (拒绝访问。)
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+
+> Task :app:compileDebugJavaWithJavac FAILED
+.\\gradlew.bat : D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错
+误: 非法的类型开始
+所在位置 行:1 字符: 122
++ ... :JAVA_HOME\\bin;$env:Path"; .\\gradlew.bat assembleDebug 2>&1 | Out-F ...
++                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Libraries\Pr...64: 错误: 非法的类型开始:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+        if (events.isEmpty()) {
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错误: 需要<标识符>
+        if (events.isEmpty()) {
+                          ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错误: 需要';'
+        if (events.isEmpty()) {
+                            ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 非法的类型开始
+        for (int i = 0; i < events.size(); i++) {
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 需要>
+        for (int i = 0; i < events.size(); i++) {
+                                       ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 需要<标识符>
+        for (int i = 0; i < events.size(); i++) {
+                                            ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 非法的类型开始
+        new AlertDialog.Builder(this)
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 需要<标识符>
+        new AlertDialog.Builder(this)
+                               ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 非法的类型开始
+        new AlertDialog.Builder(this)
+                                ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 需要';'
+        new AlertDialog.Builder(this)
+                                     ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:689: 错误: 非法的类型开始
+            })
+             ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:690: 错误: 方法声明无效; 需要返回类型
+            .setNegativeButton("都不是，重试", (d, w) -> {
+             ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:690: 错误: 非法的类型开始
+            .setNegativeButton("都不是，重试", (d, w) -> {
+                               ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:692: 错误: 非法的类型开始
+            })
+             ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:693: 错误: 方法声明无效; 需要返回类型
+            .show();
+             ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:695: 错误: 需要class, inter
+face或enum
+}
+^
+16 个错误
+[Incubating] Problems report is available at: file:///D:/Libraries/Projects/VOICE/voice_control/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错误: 需要<标识符>
+          if (events.isEmpty()) {
+                            ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错误: 需要';'
+          if (events.isEmpty()) {
+                              ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 需要>
+          for (int i = 0; i < events.size(); i++) {
+                                         ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 需要<标识符>
+          for (int i = 0; i < events.size(); i++) {
+                                              ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 需要<标识符>
+          new AlertDialog.Builder(this)
+                                 ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 需要';'
+          new AlertDialog.Builder(this)
+                                       ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:664: 错误: 非法的类型开始
+          if (events.isEmpty()) {
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:670: 错误: 非法的类型开始
+          for (int i = 0; i < events.size(); i++) {
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 非法的类型开始
+          new AlertDialog.Builder(this)
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:677: 错误: 非法的类型开始
+          new AlertDialog.Builder(this)
+                                  ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:689: 错误: 非法的类型开始
+              })
+               ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:690: 错误: 非法的类型开始
+              .setNegativeButton("都不是，重试", (d, w) -> {
+                                 ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:692: 错误: 非法的类型开始
+              })
+               ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:695: 错误: 需要class, int
+erface或enum
+  }
+  ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:690: 错误: 方法声明无效; 需要返回
+类型
+              .setNegativeButton("都不是，重试", (d, w) -> {
+               ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\MainActivity.java:693: 错误: 方法声明无效; 需要返回
+类型
+              .show();
+               ^
+  16 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 12s
+15 actionable tasks: 1 executed, 14 up-to-date

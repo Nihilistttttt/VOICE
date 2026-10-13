@@ -1,0 +1,304 @@
+﻿Starting a Gradle Daemon, 1 busy and 6 incompatible and 11 stopped Daemons could not be reused, use --status for details
+
+> Configure project :app
+Unable to initialize metrics, ensure D:\InstallData\ProgrammingTools\AndroidStudio is writable, details: D:\InstallData\ProgrammingTools\AndroidStudio\analytics.settings (拒绝访问。)
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+
+> Task :app:compileDebugJavaWithJavac FAILED
+.\\gradlew.bat : D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityServic
+e.java:413: 错误: 需要class, interface或enum
+所在位置 行:1 字符: 122
++ ... :JAVA_HOME\\bin;$env:Path"; .\\gradlew.bat assembleDebug 2>&1 | Out-F ...
++                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Libraries\Pr... interface或enum:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    private String getNodeInfo(AccessibilityNodeInfo node) {
+            ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:415: 错误: 需
+要class, interface或enum
+        String desc = node.getContentDescription() != null ? node.getContentDescription().toString() : "";
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:416: 错误: 需
+要class, interface或enum
+        String info = text.isEmpty() ? desc : text;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:417: 错误: 需
+要class, interface或enum
+        if (info.isEmpty()) info = "项" + (focusIndex + 1);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:418: 错误: 需
+要class, interface或enum
+        return info;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:419: 错误: 需
+要class, interface或enum
+    }
+    ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:421: 错误: 需
+要class, interface或enum
+    public static void swipeDown(boolean large) {
+                  ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:423: 错误: 需
+要class, interface或enum
+        float startY = large ? 0.2f : 0.3f;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:424: 错误: 需
+要class, interface或enum
+        float endY = large ? 0.8f : 0.7f;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:425: 错误: 需
+要class, interface或enum
+        instance.doSwipe(0.5f, startY, 0.5f, endY);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:426: 错误: 需
+要class, interface或enum
+    }
+    ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:428: 错误: 需
+要class, interface或enum
+    public static void swipeUp(boolean large) {
+                  ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:430: 错误: 需
+要class, interface或enum
+        float startY = large ? 0.8f : 0.7f;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:431: 错误: 需
+要class, interface或enum
+        float endY = large ? 0.2f : 0.3f;
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:432: 错误: 需
+要class, interface或enum
+        instance.doSwipe(0.5f, startY, 0.5f, endY);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:433: 错误: 需
+要class, interface或enum
+    }
+    ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:435: 错误: 需
+要class, interface或enum
+    public static void tapScreen(float xRatio, float yRatio) {
+                  ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:437: 错误: 需
+要class, interface或enum
+        instance.doTap(xRatio, yRatio);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:438: 错误: 需
+要class, interface或enum
+    }
+    ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:442: 错误: 需
+要class, interface或enum
+        Path path = new Path();
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:443: 错误: 需
+要class, interface或enum
+        path.moveTo(startX * dm.widthPixels, startY * dm.heightPixels);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:444: 错误: 需
+要class, interface或enum
+        path.lineTo(endX * dm.widthPixels, endY * dm.heightPixels);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:445: 错误: 需
+要class, interface或enum
+        GestureDescription.Builder builder = new GestureDescription.Builder();
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:446: 错误: 需
+要class, interface或enum
+        builder.addStroke(new GestureDescription.StrokeDescription(path, 0, 300));
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:447: 错误: 需
+要class, interface或enum
+        dispatchGesture(builder.build(), null, null);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:448: 错误: 需
+要class, interface或enum
+    }
+    ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:452: 错误: 需
+要class, interface或enum
+        Path path = new Path();
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:453: 错误: 需
+要class, interface或enum
+        path.moveTo(xRatio * dm.widthPixels, yRatio * dm.heightPixels);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:454: 错误: 需
+要class, interface或enum
+        GestureDescription.Builder builder = new GestureDescription.Builder();
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:455: 错误: 需
+要class, interface或enum
+        builder.addStroke(new GestureDescription.StrokeDescription(path, 0, 50));
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:456: 错误: 需
+要class, interface或enum
+        dispatchGesture(builder.build(), null, null);
+        ^
+D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:457: 错误: 需
+要class, interface或enum
+    }
+    ^
+32 个错误
+[Incubating] Problems report is available at: file:///D:/Libraries/Projects/VOICE/voice_control/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:413: 错误:
+ 需要class, interface或enum
+      private String getNodeInfo(AccessibilityNodeInfo node) {
+              ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:415: 错误:
+ 需要class, interface或enum
+          String desc = node.getContentDescription() != null ? node.getContentDescription().toString() : "";
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:416: 错误:
+ 需要class, interface或enum
+          String info = text.isEmpty() ? desc : text;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:417: 错误:
+ 需要class, interface或enum
+          if (info.isEmpty()) info = "项" + (focusIndex + 1);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:418: 错误:
+ 需要class, interface或enum
+          return info;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:419: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:421: 错误:
+ 需要class, interface或enum
+      public static void swipeDown(boolean large) {
+                    ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:423: 错误:
+ 需要class, interface或enum
+          float startY = large ? 0.2f : 0.3f;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:424: 错误:
+ 需要class, interface或enum
+          float endY = large ? 0.8f : 0.7f;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:425: 错误:
+ 需要class, interface或enum
+          instance.doSwipe(0.5f, startY, 0.5f, endY);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:426: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:428: 错误:
+ 需要class, interface或enum
+      public static void swipeUp(boolean large) {
+                    ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:430: 错误:
+ 需要class, interface或enum
+          float startY = large ? 0.8f : 0.7f;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:431: 错误:
+ 需要class, interface或enum
+          float endY = large ? 0.2f : 0.3f;
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:432: 错误:
+ 需要class, interface或enum
+          instance.doSwipe(0.5f, startY, 0.5f, endY);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:433: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:435: 错误:
+ 需要class, interface或enum
+      public static void tapScreen(float xRatio, float yRatio) {
+                    ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:437: 错误:
+ 需要class, interface或enum
+          instance.doTap(xRatio, yRatio);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:438: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:442: 错误:
+ 需要class, interface或enum
+          Path path = new Path();
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:443: 错误:
+ 需要class, interface或enum
+          path.moveTo(startX * dm.widthPixels, startY * dm.heightPixels);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:444: 错误:
+ 需要class, interface或enum
+          path.lineTo(endX * dm.widthPixels, endY * dm.heightPixels);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:445: 错误:
+ 需要class, interface或enum
+          GestureDescription.Builder builder = new GestureDescription.Builder();
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:446: 错误:
+ 需要class, interface或enum
+          builder.addStroke(new GestureDescription.StrokeDescription(path, 0, 300));
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:447: 错误:
+ 需要class, interface或enum
+          dispatchGesture(builder.build(), null, null);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:448: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:452: 错误:
+ 需要class, interface或enum
+          Path path = new Path();
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:453: 错误:
+ 需要class, interface或enum
+          path.moveTo(xRatio * dm.widthPixels, yRatio * dm.heightPixels);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:454: 错误:
+ 需要class, interface或enum
+          GestureDescription.Builder builder = new GestureDescription.Builder();
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:455: 错误:
+ 需要class, interface或enum
+          builder.addStroke(new GestureDescription.StrokeDescription(path, 0, 50));
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:456: 错误:
+ 需要class, interface或enum
+          dispatchGesture(builder.build(), null, null);
+          ^
+  D:\Libraries\Projects\VOICE\voice_control\app\src\main\java\com\voice\control\VoiceAccessibilityService.java:457: 错误:
+ 需要class, interface或enum
+      }
+      ^
+  32 个错误
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 11s
+15 actionable tasks: 1 executed, 14 up-to-date

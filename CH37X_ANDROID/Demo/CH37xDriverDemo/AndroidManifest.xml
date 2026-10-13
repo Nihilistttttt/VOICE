@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="cn.wch.ch37xdriver"
+    android:versionCode="2"
+    android:versionName="1.1" >
+    
+	<uses-feature android:name="android.hardware.usb.host" />
+	
+    <uses-sdk
+        android:minSdkVersion="12"
+        android:targetSdkVersion="19" />
+
+    <application
+        android:icon="@drawable/icon"
+        android:label="@string/app_name"
+        android:screenOrientation="landscape"   
+        android:launchMode="singleTop"  
+        android:theme="@style/AppTheme" >
+        <activity
+            android:name="cn.wch.ch37xdriver.MainActivity"
+            android:label="@string/app_name" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+
+            <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+            
+        </activity>
+    </application>
+</manifest>

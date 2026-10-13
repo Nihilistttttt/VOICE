@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOICE 项目代码导读手册</title>
+<style>
+:root{
+  --ink:#24262b; --ink2:#5a5f6b; --ink3:#8b909c;
+  --line:#e2e5ea; --bg:#f6f7f9; --card:#ffffff;
+  --blue:#2563eb; --blue-bg:#eef4ff; --blue-ln:#c7dbff;
+  --teal:#0f766e; --teal-bg:#eafaf6; --teal-ln:#b6e7dc;
+  --amber:#b45309; --amber-bg:#fff8ec; --amber-ln:#f6ddb0;
+  --red:#b91c1c; --red-bg:#fef2f2; --red-ln:#f7cccc;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+#toc{position:fixed;top:0;left:0;width:272px;height:100vh;overflow-y:auto;
+  background:var(--card);border-right:1px solid var(--line);padding:22px 16px 40px;}
+#toc h1{font-size:15px;margin:0 0 4px;font-weight:600;letter-spacing:.2px}
+#toc .sub{font-size:12px;color:var(--ink3);margin-bottom:16px;line-height:1.5}
+#toc a{display:block;color:var(--ink2);text-decoration:none;font-size:13px;
+  padding:5px 9px;border-radius:6px;margin-bottom:1px}
+#toc a:hover{background:var(--blue-bg);color:var(--blue)}
+#toc a.lv2{padding-left:22px;font-size:12.5px;color:var(--ink3)}
+#toc .grp{font-size:11px;color:var(--ink3);margin:14px 0 5px;padding-left:9px;letter-spacing:.6px}
+main{margin-left:272px;padding:34px 40px 90px;max-width:1080px}
+h2{font-size:21px;margin:46px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line);font-weight:600}
+h2 .n{display:inline-block;background:var(--blue);color:#fff;font-size:13px;
+  border-radius:6px;padding:1px 8px;margin-right:9px;vertical-align:2px}
+h3{font-size:16px;margin:26px 0 8px;font-weight:600}
+h4{font-size:14px;margin:18px 0 6px;font-weight:600;color:var(--ink2)}
+p{margin:8px 0}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:3px 0}
+code{font-family:var(--mono);font-size:12.5px;background:#eef0f4;
+  padding:1px 5px;border-radius:4px;color:#1f3a5f}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;background:#f2f4f7;
+  border-left:3px solid var(--blue);border-radius:0 8px 8px 0;
+  padding:12px 15px;overflow-x:auto;margin:10px 0;color:#1f2937}
+pre .c{color:#6b7280}
+pre .k{color:#a3311f}
+.files{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.files span{font-family:var(--mono);font-size:12px;background:#eef0f4;border:1px solid var(--line);
+  border-radius:6px;padding:2px 8px;color:#334155}
+.files span b{color:var(--blue);font-weight:600}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#f0f2f6;font-weight:600;font-size:13px}
+td code{font-size:12px}
+.note,.warn,.why,.danger{border-radius:8px;padding:11px 15px;margin:12px 0;font-size:13.5px;border:1px solid}
+.note{background:var(--blue-bg);border-color:var(--blue-ln)}
+.warn{background:var(--amber-bg);border-color:var(--amber-ln)}
+.why{background:var(--teal-bg);border-color:var(--teal-ln)}
+.danger{background:var(--red-bg);border-color:var(--red-ln)}
+.note b,.warn b,.why b,.danger b{display:block;margin-bottom:3px;font-size:12px;letter-spacing:.5px}
+.note b{color:var(--blue)} .warn b{color:var(--amber)}
+.why b{color:var(--teal)} .danger b{color:var(--red)}
+.lead{font-size:15px;color:var(--ink2);background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:16px 20px;margin:16px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px}
+.tile .t{font-weight:600;font-size:13.5px;margin-bottom:4px}
+.tile .d{font-size:12.5px;color:var(--ink2);line-height:1.6}
+.tile .p{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:6px}
+.step{counter-reset:s;list-style:none;padding-left:0}
+.step>li{counter-increment:s;position:relative;padding:9px 0 9px 40px;border-bottom:1px dashed var(--line)}
+.step>li:last-child{border-bottom:none}
+.step>li:before{content:counter(s);position:absolute;left:0;top:10px;width:24px;height:24px;
+  background:var(--blue);color:#fff;border-radius:50%;text-align:center;line-height:24px;font-size:12px}
+.step b{display:block;font-size:14px}
+.step em{font-style:normal;color:var(--ink2);font-size:13px}
+mark{background:#fff3bf;padding:0 3px;border-radius:3px}
+.q{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--teal);
+  border-radius:0 8px 8px 0;padding:11px 16px;margin:10px 0;font-size:13.5px}
+.q b{color:var(--teal)}
+footer{margin-left:272px;padding:0 40px 60px;color:var(--ink3);font-size:12.5px;max-width:1080px}
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h1>VOICE 代码导读</h1>
+  <div class="sub">吹气控制手机系统 · 逐文件精读指引<br>（只读导读，未改动任何工程文件）</div>
+
+  <div class="grp">准备</div>
+  <a href="#c0">0 · 先搞清哪些代码是活的</a>
+  <a href="#c0b">0.5 · 推荐阅读顺序</a>
+
+  <div class="grp">MCU 固件 VOICE_V307</div>
+  <a href="#c1">1 · 分层与入口 main.c</a>
+  <a href="#c2">2 · 硬件抽象层 hal_gpio / Config.h</a>
+  <a href="#c3">3 · 麦克风采集与吹气检测</a>
+  <a href="#c3a" class="lv2">3.1 I2S 帧与 4 个 HalfWord</a>
+  <a href="#c3b" class="lv2">3.2 DMA 双缓冲中断</a>
+  <a href="#c3c" class="lv2">3.3 Auto_Detect_Pos</a>
+  <a href="#c3d" class="lv2">3.4 吹气状态机</a>
+  <a href="#c3e" class="lv2">3.5 双麦协同与命令队列</a>
+  <a href="#c4">4 · USB AOA Host</a>
+  <a href="#c5">5 · 业务粘合层 phone_control</a>
+  <a href="#c6">6 · OLED 与 ADS1115 / 摇杆</a>
+  <a href="#c7">7 · USB 支线：U盘 / HID 键鼠</a>
+
+  <div class="grp">Android App voice_control</div>
+  <a href="#c8">8 · USB 层 UsbAccessoryManager</a>
+  <a href="#c9">9 · 命令分发层 MainActivity + Adapter</a>
+  <a href="#c10">10 · 无障碍执行层</a>
+  <a href="#c10a" class="lv2">10.1 焦点导航 focusStep</a>
+  <a href="#c10b" class="lv2">10.2 节点收集</a>
+  <a href="#c10c" class="lv2">10.3 scrollToVisible</a>
+  <a href="#c10d" class="lv2">10.4 微信适配与 ID 提取</a>
+
+  <div class="grp">速查</div>
+  <a href="#c11">11 · 通信协议全表</a>
+  <a href="#c12">12 · 踩坑索引</a>
+  <a href="#c13">13 · 自测题</a>
+</nav>
+
+<main>
+
+<h2 id="c0"><span class="n">0</span>先搞清哪些代码是活的</h2>
+
+<div class="lead">
+这个仓库里躺着很多工程，<mark>真正在跑的只有两个</mark>：<br>
+<code>VOICE_V307/</code>（MCU 固件）和 <code>voice_control/</code>（Android App）。<br>
+其余全是官方例程库、早期试验工程、以及两个跟本项目无关的第三方项目。
+</div>
+
+<table>
+<tr><th style="width:270px">目录</th><th style="width:78px">性质</th><th>说明</th></tr>
+<tr><td><code>VOICE_V307/</code></td><td><b>主线</b></td><td>当前 CH32V307 固件。User / Common / Phone / USB_Host / Peripheral / Core 六层</td></tr>
+<tr><td><code>voice_control/</code></td><td><b>主线</b></td><td>当前 Android App（com.voice.control），16 个 Java 类共 5682 行</td></tr>
+<tr><td><code>V307_EXAM/</code></td><td>参考库</td><td>WCH 官方 V307 例程（1673 个 .h / 1653 个 .c）。<code>Phone/</code> 里的 USB、SDIO、FatFs 都是从这抄的</td></tr>
+<tr><td><code>EXAM/</code></td><td>参考库</td><td>WCH 官方 CH32H417 例程（双核 V3F+V5F）</td></tr>
+<tr><td><code>EXAM/GPIO/VOICE/</code></td><td>历史</td><td>H417 双核版固件。功能同 V307 版，因 USB 问题迁回 V307</td></tr>
+<tr><td><code>TEST-INMP441-DOUBLE/</code></td><td>历史</td><td>V307 早期双麦工程（还带 bluetooth.c）。mic_hum 的雏形</td></tr>
+<tr><td><code>I2S_INMP441_TEST/</code></td><td>历史</td><td>在 H417 上验证 INMP441 能否采集</td></tr>
+<tr><td><code>voice/voice_control/</code></td><td>历史</td><td>旧版 App 副本，只有 .gradle 缓存，无源码价值</td></tr>
+<tr><td><code>doctor_merged/</code></td><td>无关</td><td>另一个项目（EEG 医生端 App，BDF 脑电 + FBCCA）</td></tr>
+<tr><td><code>screen-projection-master/</code></td><td>无关</td><td>GitHub 开源投屏项目（libusb + ADB）</td></tr>
+<tr><td><code>PUB/</code>、<code>CH37X_ANDROID/</code></td><td>资料</td><td>H417 评估板原理图/说明书、CH37x Android 开发指南 PDF</td></tr>
+<tr><td><code>电路.txt</code></td><td>资料</td><td>478 KB —— 嘉立创 EDA 导出的原理图 JSON（不是网表文本）</td></tr>
+</table>
+
+<div class="warn"><b>读代码前先记住当前状态</b>
+<code>VOICE_V307/Phone/mode.h</code> 里 <code>#define TEST_MODE 5</code>，即<strong>当前编译出来的是"USBFS HID 摇杆鼠标"模式</strong>，不是吹气模式。
+吹气 + AOA 完整功能对应 <code>TEST_MODE 0</code>。而 git 工作区里 HID/ADS1115/摇杆相关改动<strong>尚未提交</strong>。</div>
+
+<h2 id="c0b"><span class="n">0.5</span>推荐阅读顺序</h2>
+
+<p>不要按目录顺序读，按<strong>数据流</strong>读。整条链路是：麦克风 → DMA → 状态机 → USB → App → 无障碍 → 屏幕。分四轮：</p>
+
+<table>
+<tr><th style="width:60px">轮次</th><th style="width:250px">读什么</th><th>目标</th></tr>
+<tr><td><b>第 1 轮</b><br>骨架</td><td><code>User/main.c</code><br><code>Phone/mode.h</code><br><code>Common/Config.h</code><br><code>Common/hal_gpio.h</code></td><td>搞清"一个固件支持 6 种模式怎么组织的"、"引脚为什么用 <code>HAL_GPIO_PIN(1,12)</code> 这种编码"</td></tr>
+<tr><td><b>第 2 轮</b><br>核心</td><td><code>Phone/mic_hum.c</code>（689 行）<br><code>Phone/phone_control.c</code>（337 行）</td><td>理解"8ms 一个 tick、中断算能量、状态机判短/中/长吹、命令进环形队列"</td></tr>
+<tr><td><b>第 3 轮</b><br>通信</td><td><code>Phone/aoa_host.c</code>（508 行）<br><code>USB_Host/ch32v30x_usbhs_host.c</code>（705 行，WCH 库）</td><td>理解 AOA 协议三阶段握手、bulk 收发、断连重连为什么这么写</td></tr>
+<tr><td><b>第 4 轮</b><br>App</td><td><code>UsbAccessoryManager.java</code> → <code>MainActivity.java</code> → <code>VoiceAccessibilityService.java</code></td><td>理解命令怎么变成屏幕上的操作，以及无障碍"找节点—滚动—点"的整套方法论</td></tr>
+</table>
+
+<div class="note"><b>边读边对照文档</b>
+<code>VOICE_技术手册.md</code> 是架构级说明（含 I2S/USB 原理科普），<code>更新记录.txt</code> 是"为什么这段代码长这样"的答案本。
+读代码遇到"为什么要这么绕"时，先在这两个文件里搜关键词。</div>
+
+<h2 id="c1"><span class="n">1</span>分层与入口 main.c</h2>
+
+<div class="files">
+<span><b>VOICE_V307/</b>User/main.c · 305 行</span>
+<span>Phone/mode.h · 13 行</span>
+<span>User/ch32v30x_it.c</span>
+</div>
+
+<h3>六个目录各管什么</h3>
+<table>
+<tr><th style="width:130px">目录</th><th>职责</th></tr>
+<tr><td><code>User/</code></td><td>main.c（模式入口）+ 中断向量 <code>ch32v30x_it.c</code> + 系统时钟</td></tr>
+<tr><td><code>Common/</code></td><td>板级配置 <code>Config.h</code> + GPIO 抽象层 <code>hal_gpio</code>。<b>本项目的自研层</b></td></tr>
+<tr><td><code>Phone/</code></td><td>业务层。<b>90% 值得读的代码在这里</b></td></tr>
+<tr><td><code>USB_Host/</code></td><td>WCH 官方 USB Host 驱动（USBHS）+ Hub + HID</td></tr>
+<tr><td><code>Peripheral/</code></td><td>WCH V307 外设库（原样，不用细读）</td></tr>
+<tr><td><code>Core/</code></td><td>RISC-V 内核支持</td></tr>
+</table>
+
+<h3>main.c 的全部逻辑：7 个 #if 分支</h3>
+<p>main.c 只有 305 行，但把所有功能模式都装进来了。骨架长这样：</p>
+<pre><span class="c">// main.c:9-31  按 TEST_MODE 条件包含头文件</span>
+#if TEST_MODE == 1
+#include "sdio_test.h"        <span class="c">// SD 卡读写测试</span>
+#elif TEST_MODE == 2
+#include "sw_udisk.h" ...     <span class="c">// U 盘模式</span>
+#elif TEST_MODE == 3
+#include "ff.h" ...           <span class="c">// FatFs 读文件</span>
+#elif TEST_MODE == 4
+#include "usbhs_dev.h" ...    <span class="c">// USBHS Device 枚举调试</span>
+#elif TEST_MODE == 5
+#include "ch32v30x_usbfs_device.h"
+#include "joystick.h"         <span class="c">// 摇杆鼠标</span>
+#elif TEST_MODE == 0
+#include "phone_control.h"    <span class="c">// 正式功能</span>
+#endif
+
+<span class="c">// main.c:39-57  全模式公共初始化</span>
+int main(void) {
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);   <span class="c">// 2 位抢占 + 2 位子优先级</span>
+    SystemCoreClockUpdate();
+    Delay_Init();
+    USART_Printf_Init(2000000);                        <span class="c">// 串口 2 Mbps, 调试打印</span>
+    ...
+    GPIO_SetBits(GPIOB, GPIO_Pin_5);                   <span class="c">// 板载 LED 拉高</span>
+</pre>
+
+<p><code>TEST_MODE 0</code> 的分支永远只有 4 行 —— 这就是正式固件的入口：</p>
+<pre><span class="c">// main.c:297-301</span>
+#elif TEST_MODE == 0
+    Phone_Control_Init();
+    while (1) {
+        Phone_Control_Poll();     <span class="c">// 超级循环, 所有事都在 Poll 里做</span>
+    }
+#endif
+</pre>
+
+<div class="why"><b>为什么要有 mode.h</b>
+<code>TEST_MODE</code> 原本写在 main.c 里，但 <code>usb_desc.c</code>、<code>ch32v30x_usbfs_device.c</code> 这些"库文件"也要按模式条件编译。
+所以宏被提到了公共头 <code>Phone/mode.h</code>（更新记录一百一十四：<code>Phone/config.h</code> 因与 <code>Common/Config.h</code> 重名冲突已删除）。
+<mark>改模式只需改 mode.h 一行，重新编译即可。</mark></div>
+
+<div class="danger"><b>更正：PB5 不是 LED，是电源控制脚</b>
+<code>main.c:50-57</code> 把 PB5 配成推挽输出并置高 —— 这<strong>不是点灯</strong>。
+核对 <code>电路.txt</code> 网表：<b>PB5 = PWR_CTRL</b>，经 R12(4.7k) → Q3(NPN) → Q2(P-MOS) 控制 <code>VPHONE</code>，
+即<strong>给手机供电的开关</strong>。真正的 LED 在 <b>PB8</b>（经 R52）。
+<br><br>
+<b>由此引出一个重要冲突</b>：<code>Config.h:37</code> 把 <code>I2S3_SD_PIN_ENC</code> 也定义成 <code>HAL_GPIO_PIN(1,5)</code>（PB5），
+而 <code>mic_hum.c:491</code> 的 <code>Mic_Hum_Init()</code> 会把它改成 AF 浮空输入 ——
+在 <code>TEST_MODE=0</code> 下这意味着 <code>Phone_Control_Init()</code> 里初始化完麦克风之后，手机可能失去 VBUS 供电。
+详见《H417与V307_底层抽象对比与设计改进建议》第 5.1 节（含实测复核方法）。</div>
+
+<h2 id="c2"><span class="n">2</span>硬件抽象层 hal_gpio / Config.h</h2>
+
+<div class="files">
+<span>Common/hal_gpio.h · 53 行</span>
+<span>Common/hal_gpio.c · 219 行</span>
+<span>Common/Config.h · 93 行</span>
+<span>Common/Config.c</span>
+</div>
+
+<h3>2.1 引脚编码：一个 uint32 表示一个引脚</h3>
+
+<pre><span class="c">// hal_gpio.h:7-9  核心就这三行宏</span>
+#define HAL_GPIO_PIN(port, pin)    (((port) &lt;&lt; 16) | (pin))
+#define HAL_GPIO_PORT(pin_enc)     ((pin_enc) &gt;&gt; 16)
+#define HAL_GPIO_PIN_NUM(pin_enc)  ((pin_enc) &amp; 0xFFFF)
+</pre>
+
+<p>高 16 位存端口号（0=A, 1=B, 2=C…），低 16 位存引脚号。所以：</p>
+<table>
+<tr><th style="width:200px">写法</th><th>含义</th></tr>
+<tr><td><code>HAL_GPIO_PIN(1, 12)</code></td><td>PB12 → 十六进制 0x0001_000C</td></tr>
+<tr><td><code>HAL_GPIO_PIN(0, 15)</code></td><td>PA15</td></tr>
+<tr><td><code>HAL_GPIO_PIN(4, 14)</code></td><td>PE14（摇杆按键）</td></tr>
+</table>
+
+<h3>2.2 hal_gpio 提供的接口</h3>
+<pre><span class="c">// hal_gpio.h:35-51</span>
+void GPIO_ClockEnable(uint8_t port_index);          <span class="c">// 手动开端口时钟</span>
+void Hal_GPIO_Init(uint32_t pin_enc, Hal_GPIO_Mode_t mode,
+                   Hal_GPIO_Speed_t speed, uint8_t af_num);
+void Hal_GPIO_Write(uint32_t pin_enc, uint8_t level);
+void Hal_GPIO_Set / Reset / Toggle (uint32_t pin_enc);
+uint8_t Hal_GPIO_Read(uint32_t pin_enc);
+void Hal_GPIO_IRQ_Config / IRQ_Enable / IRQ_Disable (uint32_t pin_enc, ...);
+</pre>
+
+<div class="danger"><b>最大的坑：Hal_GPIO_Init 不会自动开时钟</b>
+调用者必须先写 <code>GPIO_ClockEnable(HAL_GPIO_PORT(pin_enc))</code>。
+用复用模式（AF_PP / AF_INPUT）时还要先 <code>AFIO_ClockEnable()</code>。
+<code>mic_hum.c:469-478</code> 和 <code>OLED.c:17-23</code> 都是这个套路 —— 先一堆 ClockEnable，再一堆 Hal_GPIO_Init。
+<b>漏掉时钟的表现是"GPIO 完全没反应，但编译没任何警告"。</b></div>
+
+<h3>2.3 Config.h：所有引脚的唯一真源</h3>
+
+<pre><span class="c">// Config.h:10-12  板型选择, 未定义时默认 V3</span>
+#if !defined(BOARD_V1) &amp;&amp; !defined(BOARD_V2) &amp;&amp; !defined(BOARD_V3)
+#define BOARD_V3
+#endif
+
+<span class="c">// Config.h:19-27  麦克风 A —— I2S2</span>
+#define I2S2_WS_PIN_ENC        HAL_GPIO_PIN(1, 12)   <span class="c">// PB12</span>
+#define I2S2_CK_PIN_ENC        HAL_GPIO_PIN(1, 13)   <span class="c">// PB13</span>
+#define I2S2_SD_PIN_ENC        HAL_GPIO_PIN(1, 15)   <span class="c">// PB15</span>
+#define I2S2_GPIO_AF           0                     <span class="c">// V307 由 Mode 决定 AF, 此值为占位</span>
+#define I2S2_SPI_INSTANCE      SPI2
+#define I2S2_DMA_CHANNEL       DMA1_Channel4
+#define I2S2_DMA_IRQn          DMA1_Channel4_IRQn
+
+<span class="c">// Config.h:35-43  麦克风 B —— I2S3</span>
+#define I2S3_WS_PIN_ENC        HAL_GPIO_PIN(0, 15)   <span class="c">// PA15 (原 JTAG)</span>
+#define I2S3_CK_PIN_ENC        HAL_GPIO_PIN(1, 3)    <span class="c">// PB3  (原 JTAG)</span>
+#define I2S3_SPI_INSTANCE      SPI3
+#define I2S3_DMA_CHANNEL       DMA2_Channel1
+
+<span class="c">// Config.h:50-54  OLED 片选按板型区分</span>
+#ifdef BOARD_V3
+#define OLED_CS_PIN_ENC    HAL_GPIO_PIN(0, 6)   <span class="c">// V3: PA6</span>
+#else
+#define OLED_CS_PIN_ENC    HAL_GPIO_PIN(1, 0)   <span class="c">// V1: PB0</span>
+#endif
+
+<span class="c">// Config.h:67-85  V3 板新增器件</span>
+#define ADS1115_SCL_PIN_ENC    HAL_GPIO_PIN(1, 10)   <span class="c">// PB10</span>
+#define ADS1115_SDA_PIN_ENC    HAL_GPIO_PIN(1, 11)   <span class="c">// PB11</span>
+#define JOYSTICK_KEY_PIN_ENC   HAL_GPIO_PIN(4, 14)   <span class="c">// PE14</span>
+#define JOYSTICK_X_CHANNEL     2                     <span class="c">// ADS1115 AIN2</span>
+#define JOYSTICK_Y_CHANNEL     3                     <span class="c">// ADS1115 AIN3</span>
+</pre>
+
+<div class="note"><b>V307 与 H417 的 GPIO 差异（读代码时的疑惑解答）</b>
+V307 没有 GPIOF（最多 GPIOE）、没有 <code>GPIO_PinAFConfig()</code>（复用号直接写在 Mode 里）、速度档位是 10/2/50 MHz、EXTI 分组是 0~4 独立 + 9_5 + 15_10。
+<code>hal_gpio.c</code> 就是把这些差异挡在抽象层里面的。</div>
+
+<h2 id="c3"><span class="n">3</span>麦克风采集与吹气检测（mic_hum.c）</h2>
+
+<div class="files">
+<span><b>Phone/</b>mic_hum.c · <b>689 行 —— 全项目最核心</b></span>
+<span>Phone/mic_hum.h · 53 行</span>
+</div>
+
+<p>这个文件负责整条链路的<strong>前半段</strong>：从两根 I2S 线上把音频捞出来 → 算出能量 → 判定是短吹/中吹/长吹/组合 → 吐出命令码。</p>
+
+<h3 id="c3a">3.1 关键前提：一个 I2S 帧 = 4 个 HalfWord</h3>
+
+<p>INMP441 输出 24 bit PCM，打包在 32 bit 声道槽里；V307 的 <code>DATAR</code> 寄存器物理宽度只有 16 bit，DMA 必须按 HalfWord 搬。于是：</p>
+
+<pre><span class="c">// mic_hum.c:14-19</span>
+#define FRAME_CNT    128          <span class="c">// 一次处理 128 帧 = 128/16000 = 8ms</span>
+#define HW_PER_FRAME 4            <span class="c">// L高16 + L低16 + R高16 + R低16</span>
+#define HW_CNT       (FRAME_CNT * HW_PER_FRAME)   <span class="c">// 512 个 HalfWord</span>
+
+static uint16_t dma_buf_a[HW_CNT * 2];   <span class="c">// 1024 HW = 双缓冲</span>
+static uint16_t dma_buf_b[HW_CNT * 2];
+</pre>
+
+<p>内存里每一帧占 4 个 uint16：</p>
+<pre>帧0                帧1                帧2
+[H0][H1][H2][H3] | [H0][H1][H2][H3] | ...
+ ↑   ↑   ↑   ↑
+ 4 个候选位置 p=0,1,2,3</pre>
+
+<div class="warn"><b>有效数据在哪个位置是不固定的</b>
+INMP441 只有一个声道有数据，另一个是静音；再加上 WS/CK 相位对齐上电不固定 —— 所以<strong>不能硬编码</strong>去取 H0。
+这就是 <code>Auto_Detect_Pos</code> 存在的原因（见 3.3）。</div>
+
+<h3 id="c3b">3.2 DMA 双缓冲 + 中断算能量</h3>
+
+<pre><span class="c">// mic_hum.c:506-518  DMA 配置要点</span>
+DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&amp;I2S2_SPI_INSTANCE-&gt;DATAR;
+DMA_InitStructure.DMA_MemoryBaseAddr     = (uint32_t)dma_buf_a;
+DMA_InitStructure.DMA_DIR                = DMA_DIR_PeripheralSRC;   <span class="c">// 外设→内存</span>
+DMA_InitStructure.DMA_BufferSize         = HW_CNT * 2;              <span class="c">// 1024, 覆盖整个双缓冲</span>
+DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;  <span class="c">// 必须 16bit</span>
+DMA_InitStructure.DMA_MemoryDataSize     = DMA_MemoryDataSize_HalfWord;
+DMA_InitStructure.DMA_Mode               = DMA_Mode_Circular;       <span class="c">// 循环, 永不停止</span>
+DMA_InitStructure.DMA_Priority           = DMA_Priority_VeryHigh;
+</pre>
+
+<p>配成 <code>Circular</code> + <code>BufferSize=1024</code> 后，硬件会在搬到一半和搬完时各产生一次中断：</p>
+
+<pre>dma_buf_a[0] ..... [511] | [512] ..... [1023]
+   ← HT 中断处理前半区 → | ← TC 中断处理后半区 →
+                        ↑ DMA 自动回绕继续写</pre>
+
+<pre><span class="c">// mic_hum.c:150-160  中断处理</span>
+void DMA1_Channel4_IRQHandler(void) {         <span class="c">// 麦克风 A</span>
+    if (DMA_GetITStatus(DMA1_IT_HT4)) {
+        DMA_ClearITPendingBit(DMA1_IT_HT4);
+        calc_energy_a(0);                     <span class="c">// 处理前半区</span>
+    }
+    if (DMA_GetITStatus(DMA1_IT_TC4)) {
+        DMA_ClearITPendingBit(DMA1_IT_TC4);
+        calc_energy_a(HW_CNT);                <span class="c">// 处理后半区</span>
+    }
+}
+<span class="c">// DMA2_Channel1_IRQHandler 同构, 对应麦克风 B</span>
+</pre>
+
+<p>CPU 处理前半区时 DMA 正在写后半区，<strong>两边永不撞车，也不需要阻塞等待</strong>。中断里只做一件重活：</p>
+
+<pre><span class="c">// mic_hum.c:118-132</span>
+static void calc_energy_a(int offset) {
+    int32_t mn = 32767, mx = -32768;
+    uint32_t acc = 0;
+    int16_t *p = (int16_t *)dma_buf_a + offset + s_valid_pos_a;  <span class="c">// 定位到有效 HW</span>
+    for (int i = 0; i &lt; FRAME_CNT; i++) {
+        int16_t s = *p;
+        if (s &lt; mn) mn = s;
+        if (s &gt; mx) mx = s;
+        acc += (s &lt; 0) ? (uint32_t)(-s) : (uint32_t)(s);   <span class="c">// 绝对值累加</span>
+        p += HW_PER_FRAME;                                 <span class="c">// 每帧跳 4 个 HW</span>
+    }
+    s_irq_amp_a  = mx - mn;              <span class="c">// 峰峰值 → 判"全零"(I2S 死了没)</span>
+    s_irq_mean_a = (uint16_t)(acc / FRAME_CNT);   <span class="c">// 绝对均值 → 判"吹没吹"</span>
+    s_a_ready = 1;
+}
+</pre>
+
+<div class="why"><b>为什么用两种统计量</b>
+<code>mean</code>（绝对均值）对<strong>持续气流</strong>敏感 → 用来判吹气；<code>amp</code>（峰峰值）只要不是恒定为 0 就说明 I2S 还活着 → 用来判"链路是否死掉"，因为环境噪声也有微小波动、而全零只可能是 I2S 时序漂移。</div>
+
+<h3 id="c3c">3.3 Auto_Detect_Pos：找出有效数据在哪个 HalfWord</h3>
+
+<pre><span class="c">// mic_hum.c:352-380  (A 通道, B 通道同构)</span>
+static int Auto_Detect_Pos_A(void) {
+    int32_t min_amp[4] = {100000,100000,100000,100000};
+    for (int g = 0; g &lt; 10; g++) {                    <span class="c">// 采 10 个 DMA 周期</span>
+        while (!DMA_GetFlagStatus(I2S2_DMA_FLAG_TC)) {}
+        DMA_ClearFlag(I2S2_DMA_FLAG_TC);
+        for (int p = 0; p &lt; 4; p++) {                 <span class="c">// 4 个候选位置各算峰峰值</span>
+            int32_t mn = 32767, mx = -32768;
+            for (int i = 0; i &lt; FRAME_CNT; i++) {
+                int16_t s = (int16_t)dma_buf_a[i*4 + p];
+                if (s &lt; mn) mn = s;
+                if (s &gt; mx) mx = s;
+            }
+            int32_t a = mx - mn;
+            if (a &lt; min_amp[p]) min_amp[p] = a;       <span class="c">// 10 次取最小</span>
+        }
+    }
+    int32_t best_amp = 100000;
+    for (int p = 0; p &lt; 4; p++)
+        if (min_amp[p] &lt; best_amp &amp;&amp; min_amp[p] &gt; 5)  <span class="c">// 取最小且 &gt;5</span>
+            { best_amp = min_amp[p]; valid_pos = p; }
+    return valid_pos;
+}
+</pre>
+
+<table>
+<tr><th style="width:150px">候选位置</th><th style="width:170px">典型峰峰值</th><th>判定依据</th></tr>
+<tr><td>有效音频高 16bit</td><td>10 ~ 100（环境噪声）</td><td>✅ 最小且 &gt; 5 → 选中</td></tr>
+<tr><td>零填充位</td><td>0（恒定）</td><td>❌ 被 <code>&gt;5</code> 排除</td></tr>
+<tr><td>静音声道</td><td>0（恒定）</td><td>❌ 同上</td></tr>
+<tr><td>低有效位 8bit</td><td>0 ~ 5</td><td>❌ 幅值太小被排除</td></tr>
+</table>
+
+<p>检测结果存进 <code>s_valid_pos_a</code> / <code>s_valid_pos_b</code>（<code>mic_hum.c:115-116</code>），之后中断里就靠它偏移取数。</p>
+
+<h3 id="c3d">3.4 吹气状态机 mic_process</h3>
+
+<pre><span class="c">// mic_hum.c:40  五个状态</span>
+enum { MIC_IDLE, MIC_BLOWING, MIC_BLOW_GAP, MIC_SHORT_WAIT, MIC_SHORT_WAIT2 };
+</pre>
+
+<p>状态结构体（<code>mic_hum.c:42-59</code>）除了当前段的统计量，还保存"第一段短吹"的 <code>s_*</code> 和"第二段短吹"的 <code>s2_*</code>，目的就是最后能拼出"双短"和"短短短"这两种组合命令。</p>
+
+<pre><span class="c">// mic_hum.c:177-178  函数签名 —— 一次调用处理一个麦克风的一个 tick</span>
+static int mic_process(mic_t *m, int blowing, uint16_t energy,
+                       int cmd_short, int cmd_long, int cmd_ss, int cmd_sss)
+</pre>
+
+<table>
+<tr><th style="width:130px">状态</th><th>行为</th><th style="width:150px">代码位置</th></tr>
+<tr><td><b>MIC_IDLE</b></td><td>energy &gt; 阈值 → 进入 BLOWING，初始化 ticks/peak/sum</td><td>180-189</td></tr>
+<tr><td><b>MIC_BLOWING</b></td><td>ticks++、更新 peak/sum。<br>ticks &gt; <code>g_mid_max_tick</code> 时<strong>立刻返回 cmd_long</strong>；之后每 <code>g_long_repeat_tick</code> 再返回一次（长吹连发）</td><td>191-221</td></tr>
+<tr><td><b>MIC_BLOW_GAP</b></td><td>gap ≥ <code>g_min_gap_tick</code> 即判定本次结束：<br>ticks ≤ short_max → 算短吹，进 SHORT_WAIT / SHORT_WAIT2<br>否则按中吹/长吹返回 cmd_long</td><td>223-279</td></tr>
+<tr><td><b>MIC_SHORT_WAIT</b></td><td>combo_wait 内又吹 → 合并回 BLOWING（连吹）；<br>超时 → 返回 <b>cmd_short</b>（单短吹）</td><td>281-310</td></tr>
+<tr><td><b>MIC_SHORT_WAIT2</b></td><td>第 3 段来了 → 返回 <b>cmd_sss</b>；<br>超时 → 返回 <b>cmd_ss</b>（双短吹）</td><td>312-344</td></tr>
+</table>
+
+<pre><span class="c">// mic_hum.c:196-215  长吹"立即触发 + 周期性重复"</span>
+if (m-&gt;blow_ticks &gt; g_mid_max_tick) {
+    if (m-&gt;long_last_tick == 0) {           <span class="c">// 第一次跨过中吹上限</span>
+        m-&gt;long_last_tick = m-&gt;blow_ticks;
+        ... 填写 g_col_* 采集数据 ...
+        return cmd_long;                    <span class="c">// 立刻发一条</span>
+    } else if (m-&gt;blow_ticks - m-&gt;long_last_tick &gt;= g_long_repeat_tick) {
+        m-&gt;long_last_tick = m-&gt;blow_ticks;
+        return cmd_long;                    <span class="c">// 每 80ms 再发一条</span>
+    }
+}
+</pre>
+
+<h4>六个可调参数（运行时可被手机改）</h4>
+<table>
+<tr><th style="width:210px">变量</th><th style="width:80px">默认</th><th>含义</th></tr>
+<tr><td><code>g_blow_threshold</code></td><td>2500</td><td>吹气触发能量阈值</td></tr>
+<tr><td><code>g_short_max_tick</code></td><td>40</td><td>短吹上限 40×8ms ≈ 320ms</td></tr>
+<tr><td><code>g_mid_max_tick</code></td><td>80</td><td>中吹上限 80×8ms ≈ 640ms，超过即长吹</td></tr>
+<tr><td><code>g_combo_wait_tick</code></td><td>80</td><td>等待下一次短吹的窗口</td></tr>
+<tr><td><code>g_long_repeat_tick</code></td><td>10</td><td>长吹重复触发间隔 80ms</td></tr>
+<tr><td><code>g_min_gap_tick</code></td><td>6</td><td>判定"吹气结束"需要的最小静默 48ms</td></tr>
+</table>
+<p class="note" style="margin-top:8px">这六个变量定义在 <code>mic_hum.c:24-29</code>，没有 <code>const</code>，被 <code>phone_control.c</code> 通过 <code>0xFB</code> 协议实时改写 —— 这就是手机设置页拖动 SeekBar 能立刻生效的原理。</p>
+
+<h3 id="c3e">3.5 双麦协同 + 命令队列</h3>
+
+<p>两个麦克风各跑一个状态机实例（<code>mic_a</code> / <code>mic_b</code>），在 <code>Mic_Hum_Poll</code> 里合流：</p>
+
+<pre><span class="c">// mic_hum.c:598-612</span>
+int blow_a = (mean_a &gt; g_blow_threshold);
+int blow_b = (mean_b &gt; g_blow_threshold);
+
+<span class="c">// 冲突判决: 两个同时吹, 只让能量高的那个算数</span>
+if (blow_a &amp;&amp; blow_b) {
+    if (mean_a &gt;= mean_b) blow_b = 0;
+    else                  blow_a = 0;
+}
+
+int cmd_long_a = g_volume_mode ? HUM_CMD_VOL_UP : HUM_CMD_NEXT;   <span class="c">// 长吹含义随模式变</span>
+int cmd_long_b = g_volume_mode ? HUM_CMD_VOL_DN : HUM_CMD_PREV;
+int cmd_a = mic_process(&amp;mic_a, blow_a, mean_a, HUM_CMD_ENTER, cmd_long_a, HUM_CMD_PLAY, HUM_CMD_VOL_MODE);
+int cmd_b = mic_process(&amp;mic_b, blow_b, mean_b, HUM_CMD_BACK,  cmd_long_b, HUM_CMD_MODE, HUM_CMD_VOL_MODE);
+</pre>
+
+<pre><span class="c">// mic_hum.c:614-635  跨麦组合: A 先进 SHORT_WAIT, B 也进 → LEFT; 反之 RIGHT</span>
+if (mic_b.state == MIC_SHORT_WAIT &amp;&amp; prev_state_b != MIC_SHORT_WAIT
+    &amp;&amp; mic_a.state == MIC_SHORT_WAIT) {
+    cmd_b = HUM_CMD_LEFT;
+    ...
+    mic_a.state = MIC_IDLE; mic_b.state = MIC_IDLE;   <span class="c">// 各自清状态, 防止再触发</span>
+}
+</pre>
+
+<pre><span class="c">// mic_hum.c:637-651  环形队列: 一个 tick 最多产 2 条命令, 消费端每 Poll 取 1 条</span>
+if (cmd_a != HUM_CMD_NONE) queue_cmd(cmd_a);
+if (cmd_b != HUM_CMD_NONE) queue_cmd(cmd_b);
+...
+int cmd = dequeue_cmd();
+if (cmd == HUM_CMD_VOL_MODE) {           <span class="c">// 音量模式切换在出队时才生效</span>
+    g_volume_mode = !g_volume_mode;
+    printf("&gt;&gt;&gt; Volume mode: %d\r\n", g_volume_mode);
+}
+return cmd;
+</pre>
+
+<div class="why"><b>为什么要环形队列（CMD_QUEUE_SIZE = 8）</b>
+一个 tick 里 A 和 B 可能<strong>同时</strong>吐命令（比如 A 短吹 + B 在 SHORT_WAIT 超时）。如果只用一个返回值，必然丢一条。队列让两条都排上，下一次 Poll 再取第二条。
+队满时 <code>queue_cmd</code> 直接丢弃新命令（<code>mic_hum.c:80</code>）—— 宁可丢也不覆盖。</div>
+
+<pre><span class="c">// mic_hum.c:640-649  全零重启看门狗</span>
+if (amp_a == 0 &amp;&amp; amp_b == 0) {
+    s_zero_cnt++;
+    if (s_zero_cnt &gt;= 12) {     <span class="c">// 连续 12 tick ≈ 96ms 全零</span>
+        s_zero_cnt = 0;
+        I2S_Restart();          <span class="c">// 关 I2S/DMA → 延时 → 重开 → 重跑 Auto_Detect</span>
+    }
+} else s_zero_cnt = 0;
+</pre>
+<p><code>I2S_Restart()</code>（<code>mic_hum.c:415-458</code>）会先关中断、关 I2S、关 DMA，Delay 100ms，再依次重启 I2S2 / I2S3（各 500ms），最后重跑一次自动检测。这是在救"I2S 时序漂移导致数据全零"这个偶发故障。</p>
+
+<div class="note"><b>读代码时值得注意的三点</b>
+<ol style="margin:4px 0">
+<li><code>HUM_CMD_RETURN</code>(8) 在 <code>mic_hum.h:27</code> 定义了，但状态机里<strong>从来没有产生过它</strong> —— 只有串口调试键 <code>'9'</code> 能发出对应的 0x09。属于预留/历史残留。</li>
+<li><code>g_col_*</code> 一组全局变量被 A、B 两个通道共用，采集模式下同一 tick 只有一路会写，但跨麦组合时会被覆盖，属于"够用就行"的取舍。</li>
+<li><code>Mic_Hum_Init()</code> 里有 4 个共 1.1 秒的 Delay（<code>mic_hum.c:528/532/542</code>），是为了等 I2S 稳定。上电慢是正常的。</li>
+</ol></div>
+
+<h2 id="c4"><span class="n">4</span>USB AOA Host（aoa_host.c）</h2>
+
+<div class="files">
+<span>Phone/aoa_host.c · 508 行</span>
+<span>Phone/aoa_host.h</span>
+<span>USB_Host/ch32v30x_usbhs_host.c · 705 行（WCH 库）</span>
+</div>
+
+<h3>4.1 AOA 是什么、要发哪三个请求</h3>
+
+<p>AOA（Android Open Accessory）让 MCU 这种"没有 USB Device 能力"的芯片能反过来当 Host 去控制手机。三个厂商自定义控制请求，走 EP0：</p>
+
+<pre><span class="c">// aoa_host.c:21-34</span>
+#define AOA_GET_PROTOCOL    51    <span class="c">// 问"你支持 AOA 吗"</span>
+#define AOA_SEND_STRING     52    <span class="c">// 报上名号(厂商/型号/版本/描述)</span>
+#define AOA_START_MODE      53    <span class="c">// 请求切到配件模式</span>
+#define AOA_VID_ACCESSORY   0x2D00
+#define AOA_VID_ADB         0x2D01
+#define AOA_MODEL           "CH32V307"      <span class="c">// 必须与 App 的 accessory_filter.xml 一致!</span>
+</pre>
+
+<pre><span class="c">// aoa_host.c:59-69  所有 AOA 控制请求的统一入口</span>
+static uint8_t AOA_CtrlRequest(uint8_t bRequestType, uint8_t bRequest,
+                               uint16_t wValue, uint16_t wIndex, uint16_t wLength,
+                               uint8_t *pbuf, uint16_t *plen) {
+    pUSBHS_SetupRequest-&gt;bRequestType = bRequestType;
+    ... 填 Setup 包各字段 ...
+    return USBHSH_CtrlTransfer(s_ep0_size, pbuf, plen);
+}
+</pre>
+
+<h3>4.2 连接流程 AOA_Host_Connect —— 四个阶段</h3>
+
+<pre><span class="c">// aoa_host.c:302-310  Phase 0: 强制把 USB Host 关掉再开</span>
+USBHS_Host_Init(DISABLE);
+Delay_Ms(500);
+USBHS_Host_Init(ENABLE);
+Delay_Ms(100);
+</pre>
+
+<div class="why"><b>为什么必须"关 500ms 再开"</b>
+Android 的 AOA 框架有状态记忆：一次 AOA 会话结束后，如果手机侧 App 还在运行，第二次发 <code>START_ACCESSORY</code> 手机会<strong>完全不响应</strong>。
+把 D+/D- 拉低 500ms，Android 就认为"USB 拔了"，从而清空 AOA 框架状态；重新拉高时它又认为"插入了新设备"，于是愿意重新协商。
+（更新记录一百零二节，这是反复实测才得出来的结论。）</div>
+
+<pre><span class="c">// aoa_host.c:315-428  主循环(没有超时, 一直等手机插入)</span>
+while (1) {
+    status = USBHSH_CheckRootHubPortStatus(ROOT_DEV_DISCONNECT);
+    if (status == ROOT_DEV_CONNECTED) {
+        if (AOA_Enumerate(&amp;is_aoa) != 0) { Delay_Ms(1000); continue; }
+
+        if (is_aoa) {                 <span class="c">// ① 枚举出来就是 AOA 设备</span>
+            Delay_Ms(3000);           <span class="c">//    等 3s 让 App 打开 accessory</span>
+            s_aoa_state = AOA_STATE_READY;
+            return AOA_OK;
+        }
+        if (AOA_CheckSupport() != 0) { Delay_Ms(2000); continue; }  <span class="c">// ② 不支持 AOA</span>
+
+        AOA_SendStrings();                                    <span class="c">// ③ 报身份</span>
+        AOA_CtrlRequest(0x40, AOA_START_MODE, 0,0,0, NULL, NULL);
+
+        <span class="c">// Phase 1: 等手机自己断开(5s) —— 千万别在这里强制端口复位!</span>
+        for (int i = 0; i &lt; 50; i++) {
+            Delay_Ms(100);
+            if (!DEV_IS_ATTACHED()) { did_disconnect = 1; break; }
+        }
+        if (!did_disconnect) { USBHSH_ResetRootHubPort(0); Delay_Ms(500); }
+
+        <span class="c">// Phase 2: 等手机以 AOA 设备重连(30s)</span>
+        for (int retry = 0; retry &lt; 30; retry++) {
+            Delay_Ms(1000);
+            if (CheckRootHubPortStatus() == ROOT_DEV_CONNECTED) {
+                if (AOA_Enumerate(&amp;is_aoa) == 0 &amp;&amp; is_aoa) {
+                    Delay_Ms(3000);
+                    s_aoa_state = AOA_STATE_READY;
+                    return AOA_OK;
+                }
+            }
+        }
+        ...
+    }
+    Delay_Ms(10);
+}
+</pre>
+
+<div class="danger"><b>整个固件最容易踩的坑全在这里</b>
+<ol style="margin:4px 0">
+<li><b>不要</b>在发完 START_ACCESSORY 后立刻复位端口 —— 会打断手机的 AOA 切换，手机会回到 Mass Storage 模式而不是 AOA 模式。（坑 1）</li>
+<li>等断开是"轮询 <code>DEV_IS_ATTACHED()</code> 50×100ms"，不是死等硬件中断。</li>
+<li><b>删掉了 keepalive</b>：早期版本每秒发一个 0x00 保活，但 App 还没打开 accessory 时 bulk OUT 会失败 → 3 次失败就误判断线 → 触发重连 → 死循环。现在 <code>AOA_Host_Send</code> 失败只返回错误码，<strong>绝不改连接状态</strong>。（坑 4）</li>
+<li>只有"端口物理断开"才算断线，而且 <code>AOA_Host_Poll</code> 用 <b>50ms → 100ms → 再查</b> 三级防抖（<code>aoa_host.c:495-508</code>）。（坑 5）</li>
+</ol></div>
+
+<h3>4.3 枚举 AOA_Enumerate 里的"身份识别"难点</h3>
+
+<pre><span class="c">// aoa_host.c:157-262</span>
+ENUM_RETRY:
+    *is_aoa_device = 0;          <span class="c">// ← 必须放在标签之后, 每次重试都重置</span>
+    ...
+    switch (AOA_CheckSupport()) { ... }
+
+<span class="c">// aoa_host.c:207-210  标准 AOA 设备直接认出来</span>
+if (pid == AOA_VID_ACCESSORY || pid == AOA_VID_ADB) {   <span class="c">// 0x2D00 / 0x2D01</span>
+    *is_aoa_device = 1;
+}
+
+<span class="c">// aoa_host.c:248-255  非标准 VID/PID 时, 只能靠 GET_PROTOCOL 反推</span>
+if (!(*is_aoa_device)) {
+    if (AOA_CheckSupport() == 0)
+        串口打印 "支持 AOA 但还没进 AOA 模式"   <span class="c">// 让上层去发 START</span>
+    else
+        *is_aoa_device = 1;                     <span class="c">// GET_PROTOCOL 失败 → 已在 AOA 模式</span>
+}
+</pre>
+
+<div class="warn"><b>返回值的语义很容易记反</b>
+<code>AOA_CheckSupport()</code>：<b>返回 0 = 支持 AOA</b>（GET_PROTOCOL &gt; 0）；<b>返回非 0 = 不支持或已在 AOA 模式</b>。
+代码里到处是 <code>if (AOA_CheckSupport() == 0)</code>，看的时候先记住这一条。</div>
+
+<h3>4.4 收发与状态</h3>
+
+<pre><span class="c">// aoa_host.c:444-474  发送: 3 次重试 + 失败重置 toggle</span>
+for (int retry = 0; retry &lt; 3; retry++) {
+    uint8_t err = USBHSH_SendEndpData(s_bulk_out_ep, &amp;s_bulk_out_tog, data, len);
+    if (err == ERR_SUCCESS) return AOA_OK;
+    s_bulk_out_tog = 0;          <span class="c">// toggle 乱了就清零重来</span>
+    Delay_Ms(200);
+    if (!PORT_IS_ENABLED()) { s_aoa_state = AOA_STATE_DISCONNECTED; return AOA_ERR_TX; }
+}
+</pre>
+
+<table>
+<tr><th style="width:200px">API</th><th>行为</th></tr>
+<tr><td><code>AOA_Host_Init()</code></td><td>时钟配置 + <b>Delay 5s</b> + <code>USBHS_Host_Init(ENABLE)</code></td></tr>
+<tr><td><code>AOA_Host_Connect()</code></td><td>阻塞式连接（无超时）。成功后 state = READY</td></tr>
+<tr><td><code>AOA_Host_Send()</code></td><td>MCU→手机，bulk OUT，3 次重试</td></tr>
+<tr><td><code>AOA_Host_Recv()</code></td><td>手机→MCU，bulk IN，非阻塞，NAK 视为"没数据"</td></tr>
+<tr><td><code>AOA_Host_Poll()</code></td><td>READY 状态下三级防抖断连检测</td></tr>
+<tr><td><code>AOA_Host_GetState()</code></td><td>返回 <code>AOA_STATE_DISCONNECTED / READY</code></td></tr>
+</table>
+
+<div class="danger"><b>没插手机时固件会卡死在连接里</b>
+<code>Phone_Control_Init()</code> → <code>AOA_Host_Connect()</code> → <code>while(1)</code> 等设备。
+所以<strong>不插手机，OLED 就一直停在 "USB Waiting..."，吹气也不会响应</strong>（因为 Poll 循环根本没跑起来）。这是设计如此，不是 bug。</div>
+
+<h2 id="c5"><span class="n">5</span>业务粘合层 phone_control.c</h2>
+
+<div class="files">
+<span>Phone/phone_control.c · 337 行</span>
+<span>Phone/phone_control.h</span>
+</div>
+
+<p>这一层只做三件事：<strong>串口调试菜单</strong>、<strong>OLED 刷新</strong>、<strong>把三条独立的数据流拧在一起</strong>。</p>
+
+<pre><span class="c">// phone_control.c:152-172  初始化顺序（顺序很讲究）</span>
+void Phone_Control_Init(void) {
+    USART1_RX_Init();               <span class="c">// ① 串口接收(debug.c 只初始化了 TX)</span>
+    OLED_Init();                    <span class="c">// ② 屏幕先亮, 好显示进度</span>
+    Mic_Hum_Init();                 <span class="c">// ③ 麦克风 —— 必须在 AOA 之前!</span>
+    AOA_Host_Init();                <span class="c">// ④ 再初始化 USB(内部 5s 延时)</span>
+    AOA_Host_Connect();             <span class="c">// ⑤ 阻塞式连接手机</span>
+    Print_Help();                   <span class="c">// ⑥ 打印串口菜单</span>
+}
+</pre>
+
+<div class="why"><b>为什么 Mic_Hum_Init 一定要在 AOA 之前</b>
+USBHS 初始化会占用 AHBPERIPH 和中断资源，实测放在前面会导致 I2S 采到的数据全零。
+这是更新记录里明确记录过的踩坑（第 5bf0e2c 次提交）。</div>
+
+<h3>5.1 主循环 Phone_Control_Poll 的五段结构</h3>
+
+<pre><span class="c">// phone_control.c:174-337  每次循环依次做 6 件事</span>
+void Phone_Control_Poll(void) {
+    <span class="c">/* ① AOA 断线维护: 掉线 → 冷却 5s → 自动重连 */</span>
+    if (AOA_Host_GetState() != AOA_STATE_READY) { ... s_reconnect_cooldown = 500; ... }
+
+    <span class="c">/* ② 串口调试命令: '0'~'9' / 'a'~'d' */</span>
+    if (USART_GetFlagStatus(USART1, USART_FLAG_RXNE) != RESET) { ... }
+
+    <span class="c">/* ③ 吹气指令: 拿能量值 + 命令码 */</span>
+    uint16_t mean_a = 0, mean_b = 0;
+    int hum_cmd = Mic_Hum_Poll(&amp;mean_a, &amp;mean_b);
+
+    <span class="c">/* ④ OLED 刷新(内部 /4 分频) */</span>
+    OLED_UpdateDisplay(mean_a, mean_b);
+
+    <span class="c">/* ⑤ 接收手机指令: 0xFD / 0xFC / 0xFB / 0xFA */</span>
+    if (AOA_Host_GetState() == AOA_STATE_READY) { AOA_Host_Recv(rx_buf, 16, &amp;rx_len); ... }
+
+    <span class="c">/* ⑥ 发能量包 + 处理命令 */</span>
+    if ((energy_stream_enabled || collect_mode) &amp;&amp; (mean_a &gt; 0 || mean_b &gt; 0)) { ... }
+
+    if (hum_cmd != HUM_CMD_NONE) {
+        if (collect_mode) { ... 发 14 字节采集包 ... collect_mode = 0; }
+        else              { ... 查表转 AOA 命令字节 ... Send_CmdByte(aoa_cmd); }
+    }
+
+    AOA_Host_Poll();                 <span class="c">/* 断连防抖 */</span>
+}
+</pre>
+
+<h3>5.2 手机→MCU 的四字节参数协议（状态机解析）</h3>
+
+<pre><span class="c">// phone_control.c:244-278  接收解析: 支持一次 Recv 里收到多帧</span>
+if (param_parse_state == 0) {
+    if      (b == 0xFD) { energy_stream_enabled = 1; collect_mode = 0; }   <span class="c">// 进设置页</span>
+    else if (b == 0xFC) { energy_stream_enabled = 0; collect_mode = 0; }   <span class="c">// 离设置页</span>
+    else if (b == 0xFB) { param_parse_state = 1; }                          <span class="c">// 参数帧开始</span>
+    else if (b == 0xFA) { collect_mode = 1; }                               <span class="c">// 进采集模式</span>
+} else if (param_parse_state == 1) { param_id = b; param_parse_state = 2; }
+else if (param_parse_state == 2)  { param_vH = b; param_parse_state = 3; }
+else {
+    uint16_t val = ((uint16_t)param_vH &lt;&lt; 8) | b;        <span class="c">// 大端拼 16 位</span>
+    switch (param_id) {
+    case 0: g_blow_threshold  = val; break;               <span class="c">// 0 = 阈值</span>
+    case 1: g_short_max_tick  = val; break;               <span class="c">// 1 = 短吹上限</span>
+    case 2: g_combo_wait_tick = val; break;               <span class="c">// 2 = 组合等待</span>
+    case 3: g_long_repeat_tick= val; break;               <span class="c">// 3 = 长吹间隔</span>
+    case 4: g_mid_max_tick    = val; break;               <span class="c">// 4 = 中吹上限</span>
+    case 5: g_min_gap_tick    = val; break;               <span class="c">// 5 = 最小间隔</span>
+    }
+    param_parse_state = 0;
+}
+</pre>
+
+<h3>5.3 命令映射表（HUM_CMD → AOA 字节）</h3>
+
+<pre><span class="c">// phone_control.c:313-332</span>
+switch (hum_cmd) {
+case HUM_CMD_ENTER:   aoa_cmd = 0x02; break;
+case HUM_CMD_BACK:    aoa_cmd = 0x03; break;
+case HUM_CMD_PLAY:    aoa_cmd = 0x04; break;
+case HUM_CMD_NEXT:    aoa_cmd = 0x05; break;
+case HUM_CMD_PREV:    aoa_cmd = 0x06; break;
+case HUM_CMD_VOL_UP:  aoa_cmd = 0x07; break;
+case HUM_CMD_VOL_DN:  aoa_cmd = 0x08; break;
+case HUM_CMD_RETURN:  aoa_cmd = 0x09; break;
+case HUM_CMD_MODE:    aoa_cmd = 0x0A; break;
+case HUM_CMD_LEFT:    aoa_cmd = 0x0B; break;
+case HUM_CMD_RIGHT:   aoa_cmd = 0x0C; break;
+case HUM_CMD_VOL_MODE:aoa_cmd = 0x0D; break;
+}
+if (aoa_cmd != 0) { printf("[HUM] cmd=%d -&gt; AOA 0x%02X\r\n", hum_cmd, aoa_cmd); Send_CmdByte(aoa_cmd); }
+</pre>
+<p>注意 <code>Send_CmdByte()</code>（<code>phone_control.c:83-96</code>）内部还有一层保护：<strong>如果 AOA 不在 READY 状态，它会先尝试自动重连</strong>，重连失败就直接丢弃这条命令。</p>
+
+<h3>5.4 能量包与采集包</h3>
+
+<pre><span class="c">// phone_control.c:284-295  能量包: 每 3 次 Poll 才发 1 包, 约 24ms 一个</span>
+if ((energy_stream_enabled || collect_mode) &amp;&amp; (mean_a &gt; 0 || mean_b &gt; 0)) {
+    energy_call_count++;
+    if (energy_call_count &gt;= 3) {
+        energy_call_count = 0;
+        uint8_t buf[5] = {0xFE, mean_a&gt;&gt;8, mean_a&amp;0xFF, mean_b&gt;&gt;8, mean_b&amp;0xFF};
+        AOA_Host_Send(buf, 5);
+    }
+}
+</pre>
+<div class="note"><b>设计意图</b>
+波形显示不需要 8ms 那么快，24ms 一包足够画出流畅曲线，同时把 USB 带宽和 CPU 占用压下来。</div>
+
+<h2 id="c6"><span class="n">6</span>OLED 与 ADS1115 / 摇杆</h2>
+
+<div class="files">
+<span>Phone/OLED.c · 207 行</span>
+<span>Phone/OLED_Font.h · 2854 行（8×16 字库）</span>
+<span>Phone/ads1115.c · 163 行</span>
+<span>Phone/joystick.c · 33 行</span>
+</div>
+
+<h3>6.1 OLED：显存 + 硬件 SPI1</h3>
+
+<pre><span class="c">// OLED.c:13  显存: 8 页 × 128 列, 每字节 8 个竖直像素</span>
+static uint8_t oled_gram[8][128];
+
+<span class="c">// OLED.c:89-96  唯一的写像素接口, 其他绘图全部基于它</span>
+void OLED_SetPixel(uint8_t x, uint8_t y, uint8_t on) {
+    if (x &gt;= 128 || y &gt;= 64) return;
+    uint8_t page = y &gt;&gt; 3;            <span class="c">// y/8 得页号</span>
+    uint8_t bit  = 1 &lt;&lt; (y &amp; 7);      <span class="c">// y%8 得页内偏移</span>
+    if (on) oled_gram[page][x] |= bit;
+    else    oled_gram[page][x] &amp;= ~bit;
+}
+
+<span class="c">// OLED.c:76-87  整屏刷新: 8 页各设一次游标, 然后连发 128 字节</span>
+void OLED_Refresh(void) {
+    for (uint8_t j = 0; j &lt; 8; j++) {
+        OLED_SetCursor(j, 0);
+        OLED_W_DC(1); OLED_W_CS(0);
+        for (uint8_t i = 0; i &lt; 128; i++) SPI_SendByte(oled_gram[j][i]);
+        OLED_W_CS(1);
+    }
+}
+</pre>
+
+<p>SPI1 配置（<code>OLED.c:32-41</code>）：<code>1Line_Tx</code>（只用 MOSI，不需要 MISO）、Master、CPOL=High、CPHA=2Edge、预分频 16（9 MHz）。</p>
+
+<p>界面布局由 <code>phone_control.c:121-150</code> 的 <code>OLED_UpdateDisplay</code> 负责：第 1 行标题 + USB 状态，第 2 行两路能量数值，下半屏两根 32 像素高的柱状图（scale=500），中间一条竖分隔线。<strong>每 4 次 Poll 刷一次（约 32ms）</strong>，避免刷新阻塞主循环。</p>
+
+<h3>6.2 ADS1115：软件 I2C 位翻转</h3>
+
+<pre><span class="c">// ads1115.c:16-34  起始/停止 —— 标准 I2C 时序的手写实现</span>
+static void I2C_Start(void) { SDA=1; SCL=1; delay; SDA=0; delay; SCL=0; delay; }
+static void I2C_Stop (void) { SDA=0; SCL=1; delay; SDA=1; delay; }
+
+<span class="c">// ads1115.c:135-164  单次转换读一个通道</span>
+int16_t ADS1115_ReadChannel(uint8_t channel) {
+    config = ADS1115_OS_START | mux | ADS1115_PGA_6_144V |
+             ADS1115_MODE_SINGLE | ADS1115_DR_128SPS;
+    ADS1115_WriteReg(ADS1115_REG_CONFIG, config);
+    Delay_Ms(10);                                  <span class="c">// 128SPS 下一帧约 8ms</span>
+    if ((ADS1115_ReadReg(ADS1115_REG_CONFIG) &amp; 0x8000) == 0) return 0;  <span class="c">// 等转换完成位</span>
+    return (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
+}
+</pre>
+
+<div class="warn"><b>软件 I2C 的两个坑（更新记录一百一十五）</b>
+<ol style="margin:4px 0">
+<li><b>不要每次操作都重新配引脚</b>：早期版本每次读写都调 <code>Hal_GPIO_Init</code> 切换输入/输出方向，太慢且破坏时序。现在初始化时统一配成<strong>开漏输出</strong>，读的时候直接读 IDR（<code>ads1115.c:93-104</code>）。</li>
+<li><b>首次读取会返回 0</b>（芯片未就绪）→ 会把校准中点算成 0 → 鼠标一直朝一个方向飘。所以 <code>main.c:239-253</code> 里校准前先 <code>Delay 100ms</code> + dummy 读取，并过滤 1000~16000 范围外的异常样本。</li>
+</ol></div>
+
+<h3>6.3 joystick.c：三层封装的最薄一层</h3>
+
+<pre><span class="c">// joystick.c 全文 33 行</span>
+void    Joystick_Init(void)   { ADS1115_Init(); 配 PE14 为上拉输入; }
+int16_t Joystick_GetX(void)   { return ADS1115_ReadChannel(JOYSTICK_X_CHANNEL); }  <span class="c">// AIN2</span>
+int16_t Joystick_GetY(void)   { return ADS1115_ReadChannel(JOYSTICK_Y_CHANNEL); }  <span class="c">// AIN3</span>
+uint8_t Joystick_GetButton(void) { return Hal_GPIO_Read(JOYSTICK_KEY_PIN_ENC); }   <span class="c">// PE14</span>
+</pre>
+
+<p>真正把摇杆变成鼠标的逻辑在 <code>main.c:259-295</code>：</p>
+<pre><span class="c">// main.c:263-284</span>
+int16_t x_raw = Joystick_GetX(), y_raw = Joystick_GetY();
+int32_t x_off = x_raw - x_mid, y_off = y_raw - y_mid;
+if (x_off &gt; -500 &amp;&amp; x_off &lt; 500) x_off = 0;      <span class="c">// 死区, 防止静止时抖</span>
+if (y_off &gt; -500 &amp;&amp; y_off &lt; 500) y_off = 0;
+int8_t mx = (int8_t)(-y_off / 128);              <span class="c">// X/Y 顺时针旋转 90° 适配安装角度</span>
+int8_t my = (int8_t)(-x_off / 128);              <span class="c">// 再：Y 轴反向</span>
+限幅 ±64;
+mouse_report[0] = Joystick_GetButton() ? 0 : 0x01;   <span class="c">// 按下 = 左键(低有效)</span>
+USBFS_Endp_DataUp(DEF_UEP2, mouse_report, 4, DEF_UEP_CPY_LOAD);
+</pre>
+
+<h2 id="c7"><span class="n">7</span>USB 支线：U盘 / HID 键鼠</h2>
+
+<div class="files">
+<span>Phone/usb_desc.c · 363 行</span>
+<span>Phone/ch32v30x_usbfs_device.c · 923 行</span>
+<span>Phone/sw_udisk.c · 491 行</span>
+<span>Phone/sdio_sd.c · 2102 行</span>
+<span>Phone/diskio.c · 133 行 + ff.c · 6982 行</span>
+<span>Phone/usbhs_dev.c · 730 行（已停用）</span>
+</div>
+
+<div class="note"><b>这条支线解决了什么问题</b>
+主线的 USB 方向是"M CU 当 Host 控制手机"。支线反过来：<strong>MCU 当 Device，让电脑/手机把它当成 U 盘或键鼠</strong>。
+走这条线的起因是 USBHS 在 Device 模式下枚举失败（更新记录一百一十节），改用 USBFS（PA11/PA12，全速 PHY，信号要求更低）后成功。</div>
+
+<h3>7.1 多模式描述符：靠 #if TEST_MODE 切换</h3>
+
+<pre><span class="c">// usb_desc.c:4-84  TEST_MODE=5 时是 HID 复合设备(键盘+鼠标)</span>
+const uint8_t MyCfgDescr[] = {
+    0x09,0x02, 0x3B,0x00, 0x02, 0x01, 0x00, 0xA0, 0x32,   <span class="c">// 配置描述符(59字节, 2接口)</span>
+    <span class="c">// ---- 接口 0: 键盘 ----</span>
+    0x09,0x04, 0x00,0x00, 0x01, 0x03, 0x01, 0x01, 0x00,   <span class="c">// bInterfaceClass=0x03 HID</span>
+    0x09,0x21, 0x11,0x01, 0x00, 0x01, 0x22, 0x3E,0x00,   <span class="c">// HID 描述符, 报告长度 62</span>
+    0x07,0x05, 0x81, 0x03, 0x08,0x00, 0x0A,               <span class="c">// EP1 IN, 中断, 8 字节, 10ms</span>
+    <span class="c">// ---- 接口 1: 鼠标 ----</span>
+    0x09,0x04, 0x01,0x00, 0x01, 0x03, 0x01, 0x02, 0x00,
+    0x09,0x21, 0x10,0x01, 0x00, 0x01, 0x22, 0x34,0x00,   <span class="c">// 报告长度 52</span>
+    0x07,0x05, 0x82, 0x03, 0x08,0x00, 0x01,               <span class="c">// EP2 IN</span>
+};
+</pre>
+
+<div class="danger"><b>踩坑记录</b>
+<code>usb_desc.c</code> 里 <code>TAB_USB_FS_OSC_DESC</code> 会引用 <code>sizeof(MyCfgDescr_HS)</code>，而 <code>TEST_MODE=5</code> 时 <code>MyCfgDescr_HS</code> 没被定义 → <b>链接错误</b>。
+解决：<code>TEST_MODE=5</code> 分支里也定义一份 <code>MyCfgDescr_HS/FS</code>（内容与 <code>MyCfgDescr</code> 相同）。</div>
+
+<h3>7.2 U 盘模式的双重死锁问题（重点理解）</h3>
+
+<div class="why"><b>现象</b>：U 盘能被 Windows 认出来，但格式化永远失败。</div>
+
+<p>根因是三件事叠在一起（更新记录一百一十二）：</p>
+<ol>
+<li><code>main.c</code> 在 <code>SD_Init()</code> 之后执行了 <code>NVIC_DisableIRQ(SDIO_IRQn)</code>；</li>
+<li>但 SD 卡还处在 <b>DMA 模式</b>：<code>SD_WriteBlock</code> 会死等 <code>TransferEnd</code> 标志；</li>
+<li>而那个标志是 <code>SDIO_IRQHandler</code> 置位的 —— 中断被禁了，且 SDIO 与 USBFS 同为优先级 0 <b>无法嵌套</b>。</li>
+</ol>
+<p>结果：写路径死等约 30 秒超时，WRITE10 失败，格式化失败。读路径却没事，因为 <code>SD_ReadBlock</code> 只等 DMA 硬件标志（<code>DMA2-&gt;INTFR &amp; 0x2000</code>），不需要中断。</p>
+
+<pre><span class="c">// main.c:88-92  修复: 切到轮询模式, 彻底不依赖中断</span>
+<span class="c">/* U盘模式: SD卡切到POLLING模式, 读写不再依赖SDIO中断 */</span>
+SD_SetDeviceMode(SD_POLLING_MODE);
+NVIC_DisableIRQ(SDIO_IRQn);
+</pre>
+
+<h3>7.3 FatFs 移植的卷号坑</h3>
+
+<pre><span class="c">// main.c:130  f_mount 用 "1:" 卷号</span>
+fr = f_mount(&amp;s_fatfs, "1:", 1);
+</pre>
+<div class="warn"><b>FR_NOT_READY 的真相</b>
+用 <code>"1:"</code> 时 FatFs 传给 diskio 的 <code>pdrv = 1</code>。
+如果 <code>diskio.c</code> 里 <code>DEV_MMC</code> 定义成 0，<code>disk_initialize(1)</code> 就会落到 <code>default</code> 分支返回 <code>STA_NOINIT</code> → 挂载失败。
+官方示例是 <code>"1:"</code> 配 <code>DEV_MMC=1</code>，改回来就好了。</div>
+
+<h3>7.4 冲突文件用 .bak 屏蔽</h3>
+<div class="warn"><b>MounRiver Studio 会重新生成 subdir.mk</b>
+所以不能靠编辑 <code>subdir.mk</code> 来排除文件 —— IDE 下次生成时会把改动覆盖掉。
+项目里的做法是把冲突文件<strong>重命名成 .bak</strong>：<code>usbhs_dev.c/h.bak</code>、<code>ch32v30x_usbfs_host.c.bak</code>。</div>
+
+<h2 id="c8"><span class="n">8</span>USB 层：UsbAccessoryManager</h2>
+
+<div class="files">
+<span>voice_control/.../<b>UsbAccessoryManager.java</b> · 264 行</span>
+<span>res/xml/accessory_filter.xml</span>
+</div>
+
+<p>这个类把 Android 的 <code>UsbManager</code> 包装成一个"能自动连、断了能自己回来、界面重建也不丢"的组件。</p>
+
+<h3>8.1 连接优先级：先直连，失败才弹窗</h3>
+
+<pre><span class="c">// UsbAccessoryManager.java:159-183</span>
+private void tryConnect() {
+    if (inputStream != null) return;
+    UsbAccessory[] accessories = usbManager.getAccessoryList();
+    if (accessories == null || accessories.length == 0) return;
+    UsbAccessory acc = accessories[0];
+    synchronized (this) {
+        <span class="c">// ① 先直接打开 —— 已经授权过的话完全不需要用户点任何东西</span>
+        ParcelFileDescriptor newPfd = usbManager.openAccessory(acc);
+        if (newPfd != null) { ... inputStream = new FileInputStream(...); callback.onConnected(); return; }
+    }
+    <span class="c">// ② 只有真的没权限才弹系统对话框</span>
+    if (!permissionRequested) { permissionRequested = true; requestPermission(acc); }
+}
+</pre>
+
+<div class="why"><b>为什么要"先直连"</b>
+目标用户是高位截瘫患者，<strong>任何需要点屏幕的对话框都是灾难</strong>。
+Android 的 USB accessory 权限一旦授予就是持久的，所以正常情况下 <code>openAccessory()</code> 会直接成功。
+<code>accessory_filter.xml</code> 里 model 必须与 MCU 端 <code>AOA_MODEL</code>("CH32V307") 完全一致 —— 不一致会导致系统每次弹框（更新记录一百零四）。</div>
+
+<h3>8.2 单字节/多字节混合协议解析（readLoop）</h3>
+
+<pre><span class="c">// UsbAccessoryManager.java:185-249  三个状态搞定"变长协议"</span>
+private void readLoop() {
+    int parseState = 0;
+    byte[] energyBuf = new byte[4];   int energyIdx  = 0;
+    byte[] collectBuf = new byte[13]; int collectIdx = 0;
+    while (running) {
+        if (inputStream == null) { tryConnect(); Thread.sleep(500); continue; }
+        int len = inputStream.read(buffer);
+        for (int i = 0; i &lt; len; i++) {
+            int b = buffer[i] &amp; 0xFF;
+            if (parseState == 0) {
+                if      (b == 0xFE) { parseState = 1; energyIdx  = 0; }   <span class="c">// 后面跟 4 字节</span>
+                else if (b == 0xFA) { parseState = 2; collectIdx = 0; }   <span class="c">// 后面跟 13 字节</span>
+                else                { callback.onCommandReceived(b); }    <span class="c">// 单字节命令</span>
+            } else if (parseState == 1) { ... 凑满 4 字节 → onEnergyReceived ... }
+            else                        { ... 凑满 13 字节 → onCollectResult ... }
+        }
+    }
+}
+</pre>
+
+<div class="note"><b>协议设计要点：三个包类型用"头字节"区分，且长度互不相同</b>
+<code>0xFE</code> + 4 字节、<code>0xFA</code> + 13 字节、其他单字节直接是命令。
+因为命令码只用到 0x02~0x0D，永远不会与 0xFE/0xFA 冲突，所以用一个状态机就能无歧义解析。
+注意 MCU 发的采集包是 <b>14 字节含头</b>，Android 这边只收后面 13 字节 —— <mark>头字节已经用来切状态了</mark>。</div>
+
+<h3>8.3 界面重建后连接不丢（三个关键设计）</h3>
+<table>
+<tr><th style="width:230px">做法</th><th>代码</th><th>解决的问题</th></tr>
+<tr><td><code>static</code> 单例</td><td>MainActivity:118 / 214-224</td><td>Activity 销毁重建时复用同一个实例，receiver 不注销</td></tr>
+<tr><td><code>callback</code>/<code>context</code> 非 final + <code>setCallback()</code></td><td>UsbAccessoryManager:51-54</td><td>Activity 没了也能收 USB 事件，不崩溃</td></tr>
+<tr><td><code>start()</code> 可重入</td><td>UsbAccessoryManager:56-75</td><td>先 <code>unregisterReceiver</code>（try-catch 包住首次未注册）防重复注册崩溃；读线程检查 <code>isAlive()</code> 防多线程</td></tr>
+</table>
+<p>Android 13+ 注册广播必须带 <code>Context.RECEIVER_EXPORTED</code>，Android 12+ 的 PendingIntent 必须带 <code>FLAG_MUTABLE</code> —— 这两行在 <code>UsbAccessoryManager.java:63-67</code> 和 <code>113-116</code>。</p>
+
+<h2 id="c9"><span class="n">9</span>命令分发层：MainActivity + Adapter</h2>
+
+<div class="files">
+<span><b>MainActivity.java</b> · 1503 行</span>
+<span>AppAdapter.java · 16 行</span>
+<span>AppConstants.java · 17 行</span>
+<span>BilibiliAdapter.java · 87 行</span>
+<span>XimalayaAdapter.java · 67 行</span>
+<span>WechatAdapter.java · 125 行</span>
+</div>
+
+<h3>9.1 两页 ViewPager2 结构</h3>
+<p>position 0 = 控制页（应用列表），position 1 = 设置页（参数 + 波形 + 采集）。翻页时会顺手给 MCU 发开关能量流的指令（<code>MainActivity.java:230-238</code>）：</p>
+<pre><span class="c">// MainActivity.java:232-237  翻页即控制能量流</span>
+if (position != 1) cancelCollect();
+if (usbManager != null &amp;&amp; usbManager.isConnected()) {
+    usbManager.sendData(new byte[]{(byte)(position == 1 ? 0xFD : 0xFC)});
+}
+</pre>
+
+<h3>9.2 两个状态的命令路由</h3>
+
+<pre><span class="c">// MainActivity.java:793-838  onCommand: 先把命令丢进状态机</span>
+private void onCommand(int cmd) {
+    if (state == STATE_SELECT) {
+        <span class="c">// 选择页收到"播放/返回/音量"时, 先试试前台是不是已知 App → 是就直接切 CONTROL</span>
+        if (cmd == CMD_PLAY || cmd == CMD_BACK || cmd == CMD_VOL_UP || cmd == CMD_VOL_DN) {
+            if (tryAutoControl()) { onCommand(cmd); return; }     <span class="c">// 递归重入</span>
+        }
+        switch (cmd) {
+            case CMD_NEXT:  selectedApp = (selectedApp + 1) % filteredApps.size(); updateUI(); break;
+            case CMD_PREV:  selectedApp = (selectedApp - 1 + size) % size;         updateUI(); break;
+            case CMD_ENTER: openApp(selectedApp);                                  break;
+        }
+    } else {                                   <span class="c">// STATE_CONTROL</span>
+        autoSwitchByForeground();               <span class="c">// 前台 App 变了就自动切目标</span>
+        if (VoiceAccessibilityService.detectAndEnterCallMode()) return;   <span class="c">// 微信来电优先</span>
+        AppAdapter adapter = getAdapter(currentPkg);
+        if (adapter != null &amp;&amp; a11y &amp;&amp; adapter.handleCommand(cmd)) return;  <span class="c">// ← 关键一行</span>
+        handleDefaultCommand(cmd);              <span class="c">// 所有适配器都返回 false → 走通用逻辑</span>
+    }
+}
+</pre>
+
+<div class="why"><b>Adapter 模式的核心约定：返回 boolean</b>
+<code>handleCommand()</code> 返回 <b>true = 我处理了，别再管</b>；<b>false = 我不适用，交给下一层</b>。
+所以 B站适配器里大量出现 <code>return false</code>（比如非全屏时的 PLAY）—— 这不是"没实现"，而是<strong>故意让通用逻辑接管媒体键</strong>。
+重构前这里是 220 行 if-else 链，现在是这一行分发。</div>
+
+<pre><span class="c">// MainActivity.java:177-182  适配器选择</span>
+private AppAdapter getAdapter(String pkg) {
+    if (pkg.equals(AppConstants.BILIBILI)) return biliAdapter;
+    if (pkg.equals(AppConstants.XIMALAYA)) return ximaAdapter;
+    if (pkg.equals(AppConstants.WECHAT) || VoiceAccessibilityService.isWechatCallPanelOpen()) return wechatAdapter;
+    return null;                  <span class="c">// 音乐类 App 等 → 全部走 handleDefaultCommand</span>
+}
+</pre>
+
+<h3>9.3 通用兜底 handleDefaultCommand</h3>
+<table>
+<tr><th style="width:120px">命令</th><th>动作</th></tr>
+<tr><td>PLAY / ENTER</td><td><code>sendMediaKey(KEYCODE_MEDIA_PLAY_PAUSE)</code></td></tr>
+<tr><td>NEXT / PREV</td><td><code>KEYCODE_MEDIA_NEXT</code> / <code>KEYCODE_MEDIA_PREVIOUS</code></td></tr>
+<tr><td>BACK / RETURN</td><td><code>returnToSelect()</code>：切回选择页 + 清红框 + 杀后台</td></tr>
+<tr><td>VOL_UP / VOL_DN</td><td><code>audioManager.adjustVolume(ADJUST_RAISE/LOWER)</code></td></tr>
+<tr><td>LEFT / RIGHT</td><td><code>GestureHelper.doSwipe()</code> 上/下翻页</td></tr>
+<tr><td>VOL_MODE</td><td>切换 <code>volumeMode</code> 标志 + Toast 提示</td></tr>
+</table>
+
+<h3>9.4 B站适配器：状态机最复杂的那个</h3>
+<table>
+<tr><th style="width:90px">命令</th><th style="width:130px">判断顺序</th><th>动作</th></tr>
+<tr><td rowspan="2">NEXT</td><td>直播间</td><td><code>tryLiveToggleDanmaku()</code> 开关弹幕</td></tr>
+<tr><td>全屏</td><td>唤出控制栏 → 500ms 后发媒体键"下一个"</td></tr>
+<tr><td rowspan="2">PREV</td><td>直播间</td><td>全屏切换</td></tr>
+<tr><td>全屏</td><td><code>performBack()</code> 退出全屏</td></tr>
+<tr><td>BACK</td><td>—</td><td>先 <code>removeHighlight()</code> + <code>performBack()</code>，500ms 后查前台包名：<br>已经不是 B站 → <code>returnToSelect()</code>；还在 B站 → 500ms 后 <code>refocusCurrent()</code></td></tr>
+</table>
+<p>三种"特殊页面"由无障碍服务提供静态判定：<code>isBiliFullscreen()</code>（<code>VoiceAccessibilityService.java:1181</code>）、<code>isBiliVerticalVideo()</code>（1192）、<code>isBiliLiveRoom()</code>（1203）。</p>
+
+<h2 id="c10"><span class="n">10</span>无障碍执行层：VoiceAccessibilityService</h2>
+
+<div class="files">
+<span><b>VoiceAccessibilityService.java</b> · <b>2208 行 —— App 端最核心</b></span>
+<span>WechatCallController.java · 585 行</span>
+<span>GestureHelper.java · 233 行</span>
+<span>NodeHelper.java · 185 行</span>
+<span>WechatIds.java · 93 行</span>
+</div>
+
+<p>一句话概括这个类的职责：<strong>把"下一个/上一个/确定"这种抽象命令，翻译成具体 App 界面上的"找到某个卡片节点 → 滚到屏幕中间 → 画红框 → 点击"。</strong></p>
+
+<h3 id="c10a">10.1 焦点导航 focusStep（第 755-824 行）</h3>
+
+<pre><span class="c">// VoiceAccessibilityService.java:755-824  骨架</span>
+private void focusStep(boolean isNext) {
+    if (isRefreshing) return;                       <span class="c">// 刷新中不响应, 防命令打架</span>
+    if (escapeWechatMiniPanel()) { postDelayed(重试, 600ms); return; }
+
+    refreshFocusableNodes();                        <span class="c">// ① 重新扫描当前屏幕所有可聚焦元素</span>
+    if (focusableNodes.isEmpty()) { Toast("没有可选项"); return; }
+
+    <span class="c">// ② 用 currentFocusDesc 反查当前焦点在新列表里的下标</span>
+    <span class="c">//    因为节点列表每次都变, focusIndex 不能直接沿用</span>
+    int currentIdx = -1;
+    if (!currentFocusDesc.isEmpty()) {
+        for (int i = 0; i &lt; focusableNodes.size(); i++) {
+            if (getNodeInfo(focusableNodes.get(i)).equals(currentFocusDesc)) {
+                int dist = Math.abs(i - focusIndex);      <span class="c">// 描述重复时取离原下标最近的</span>
+                if (dist &lt; bestDist) { bestDist = dist; currentIdx = i; }
+            }
+        }
+    }
+
+    if (currentIdx &lt; 0) {                            <span class="c">// ③ 焦点已不在屏幕</span>
+        focusIndex = isNext ? 0 : focusableNodes.size() - 1;
+        ... return;
+    }
+    int nextIdx = isNext ? currentIdx + 1 : currentIdx - 1;
+    if (nextIdx &gt;= 0 &amp;&amp; nextIdx &lt; focusableNodes.size()) {   <span class="c">// ④ 正常移动</span>
+        focusIndex = nextIdx; currentFocusDesc = getNodeInfo(...); focusCurrent(); return;
+    }
+    <span class="c">// ⑤ 走到列表边界 → 翻页</span>
+    if (wechatNavMode &amp;&amp; ...) { 微信导航栏循环; return; }
+    if (wechatGenericPage &amp;&amp; ...) { 微信固定列表循环; return; }
+    if (currentFocusPkg.equals(WECHAT) &amp;&amp; !isNext) { ACTION_SCROLL_BACKWARD; return; }
+    swipeForNewCards(isNext, 0);
+}
+</pre>
+
+<div class="why"><b>为什么要用"描述"而不是索引记住焦点</b>
+无障碍节点列表每次 <code>getRootInActiveWindow()</code> 都是新的快照，数量、顺序都可能变（比如加载了新卡片）。
+<code>currentFocusDesc</code> 存的是节点的文本/描述，靠它在新列表里"认人"，比死记下标可靠得多。
+<code>getNodeInfo()</code>（<code>NodeHelper.java</code> 末尾）取文本的优先级是：<strong>text → desc → 子节点 main_sound_name → main_tv_order_no → 深查 otg → 兜底用坐标</strong>。</div>
+
+<h3 id="c10b">10.2 节点收集 refreshFocusableNodes + collectClickable</h3>
+
+<pre><span class="c">// VoiceAccessibilityService.java:1556-1647  分流骨架</span>
+private void refreshFocusableNodes() {
+    focusableNodes.clear();
+    AccessibilityNodeInfo root = getRootInActiveWindow();
+    String pkg = root.getPackageName();
+    <span class="c">// ① 读校准线(优先 App 专属, 回退全局默认)</span>
+    int defTop = pkg.equals(WECHAT) ? 226 : 240;
+    int defBot = pkg.equals(WECHAT) ? size.y - 150 : size.y - 100;
+    topLine     = sp.getInt("calib_top_"  + pkg, sp.getInt("calib_top",  defTop));
+    botLine     = sp.getInt("calib_bot_"  + pkg, sp.getInt("calib_bot",  defBot));
+    centerTopLine = ...;  centerBotLine = ...;
+
+    <span class="c">// ② 按页面类型分流到不同的收集函数</span>
+    if (wechatNavMode &amp;&amp; pkg.equals(WECHAT))  collectWechatNavTabs(...);
+    else if (pkg.equals(WECHAT) &amp;&amp; isWechatMomentsPage(root)) collectWechatMomentsCards(...);
+    else {
+        collectClickable(root, size.y, size.x, pkg);
+        if (pkg.equals(WECHAT) &amp;&amp; focusableNodes.isEmpty()) {
+            if (isWechatContactsPage(root)) collectWechatContactsItems(...);
+            else if (有"直播"文本 &amp;&amp; 有"头像"desc) collectWechatLiveCards(...);
+            else { collectWechatGenericItems(...); wechatGenericPage = true; }
+        }
+    }
+
+    <span class="c">// ③ 排序: 先按 top, 再按 left (从上到下、从左到右)</span>
+    focusableNodes.sort((a, b) -&gt; { top 不等比 top; 否则比 left; });
+
+    <span class="c">// ④ 统计平均卡片高度, 供 scrollToVisible 判断"高度够不够"</span>
+    int heightThreshold = pkg.equals(WECHAT) ? 100 : 200;
+    ...
+    avgCardHeight = totalH / count;
+}
+</pre>
+
+<p>通用收集函数其实很短（第 1793-1825 行）：</p>
+
+<pre><span class="c">// VoiceAccessibilityService.java:1793-1825</span>
+private void collectClickable(AccessibilityNodeInfo node, int screenH, int screenW, String pkg) {
+    if (node.isClickable()) {
+        String desc   = node.getContentDescription();
+        String viewId = node.getViewIdResourceName();
+        boolean isWechatItem = pkg.equals(WECHAT) &amp;&amp; WechatIds.isChatItem(viewId);
+        if (desc.contains("观看") || desc.contains("弹幕") || desc.contains("点赞")
+         || desc.contains("投币") || desc.contains("收藏") || desc.contains("人气值")
+         || desc.contains("UP主") || desc.contains("主播") || desc.contains("专辑")
+         || viewId.contains("card")                    <span class="c">// ← 最通用的一条</span>
+         || isWechatItem
+         || hasChildWithId(node, "main_sound_name")) { <span class="c">// ← 喜马拉雅特征</span>
+            Rect r = new Rect(); node.getBoundsInScreen(r);
+            if (r.width() &gt; 0 &amp;&amp; r.height() &gt; 0 &amp;&amp; r.left &gt;= 0 &amp;&amp; r.left &lt; screenW) {
+                boolean boundsOk;
+                if (pkg.equals(WECHAT))
+                    boundsOk = r.top &gt;= topLine &amp;&amp; r.bottom &lt;= botLine;   <span class="c">// 微信: 完全包含</span>
+                else
+                    boundsOk = r.bottom &gt; topLine &amp;&amp; r.top &lt; botLine;      <span class="c">// 其他: 交集即可</span>
+                if (boundsOk) focusableNodes.add(AccessibilityNodeInfo.obtain(node));
+            }
+            return;      <span class="c">// ← 找到就不再往下递归, 避免父子重复收集</span>
+        }
+    }
+    for (int i = 0; i &lt; node.getChildCount(); i++)
+        collectClickable(node.getChild(i), screenH, screenW, pkg);
+}
+</pre>
+
+<div class="warn"><b>两处"包名区分"的逻辑是踩坑踩出来的</b>
+<ol style="margin:4px 0">
+<li><b>边界规则</b>：微信要"完全包含"，B站/喜马拉雅用"交集"。因为 B站卡片常常只露出一部分，用完全包含就永远收集不到。</li>
+<li><b>平均高度阈值</b>：微信 100，其他 200。曾经为了适配微信把它统一降到 100，结果 B站的小元素混进统计把均值拉低，导致 <code>scrollToVisible</code> 判断失准、滑动划过头。（更新记录里专门记过这一条）</li>
+</ol></div>
+
+<h3 id="c10c">10.3 scrollToVisible：自适应比例的滚动（第 1973-2072 行）</h3>
+
+<p>这是整个 App 端最精巧的一段。核心思想：<strong>目标位置是"屏幕中心区"，每次只滑一部分，滑完量一下实际位移，用实际位移反推滑动比例并记忆下来。</strong></p>
+
+<pre><span class="c">// VoiceAccessibilityService.java:1981-1993  先算四个判断量</span>
+int centerCard   = (r.top + r.bottom) / 2;              <span class="c">// 卡片中心</span>
+int targetCenter = (centerTopLine + centerBotLine) / 2; <span class="c">// 目标中心(校准线中点)</span>
+int offset = centerCard - targetCenter;                 <span class="c">// 还差多少</span>
+boolean inBounds    = r.top &gt;= topLine &amp;&amp; r.bottom &lt;= botLine;   <span class="c">// 完整落在边界内</span>
+boolean heightOk    = r.height() &gt;= avgCardHeight * 4 / 5;      <span class="c">// 高度够(不是小碎片)</span>
+boolean inCenter    = centerCard &gt;= centerTopLine &amp;&amp; centerCard &lt;= centerBotLine;
+boolean cardTooTall = r.height() &gt; (botLine - topLine);         <span class="c">// 比可视区还高</span>
+</pre>
+
+<table>
+<tr><th style="width:70px">顺序</th><th style="width:250px">不滑动的条件</th><th>原因</th></tr>
+<tr><td>1</td><td><code>depth &gt;= 10</code></td><td>防无限递归兜底</td></tr>
+<tr><td>2</td><td><code>cardTooTall &amp;&amp; inCenter</code> 且<br>微信：直接显示红框<br>其他：<code>|offset| &lt; avgCardHeight/3</code></td><td>巨长卡片滑不动。微信朋友圈卡片占满屏幕，滑了没用还会振荡；B站卡片要求"中心已对齐"才停</td></tr>
+<tr><td>3</td><td>完全落在中心区 <code>[centerTopLine, centerBotLine]</code></td><td>已到目标位，收工</td></tr>
+<tr><td>4</td><td><code>wechatNoScroll</code> 或 <code>inBounds &amp;&amp; heightOk &amp;&amp; inCenter</code></td><td>微信通用页且完整可见时不滑（防抖）</td></tr>
+<tr><td>5</td><td><code>r.top == lastScrollTop &amp;&amp; r.bottom == lastScrollBottom</code></td><td>已经滑不动了（到顶/到底），别死循环</td></tr>
+</table>
+
+<pre><span class="c">// VoiceAccessibilityService.java:2029-2035  计算滑动距离</span>
+boolean scrollUp = offset &gt; 0;                       <span class="c">// 卡片在下面 → 手指往上滑</span>
+float ratio = scrollUp ? scrollUpRatio : scrollDownRatio;
+int moveDist = (int)(Math.abs(offset) / ratio);      <span class="c">// 偏移 ÷ 比例 = 需要滑多少像素</span>
+if (moveDist &lt; 50)  moveDist = 50;                   <span class="c">// 下限, 太小滑不动</span>
+if (moveDist &gt; screenH * 4 / 5) moveDist = screenH * 4 / 5;
+if (inBounds &amp;&amp; (isWechat || !scrollUp) &amp;&amp; moveDist &gt; 300) moveDist = 300;  <span class="c">// 防划过头</span>
+
+<span class="c">// VoiceAccessibilityService.java:2041-2060  滑完量实际位移, 反推比例并记忆</span>
+Runnable afterSwipe = () -&gt; waitForStable(node, () -&gt; {
+    node.refresh();
+    int actualMove = Math.abs(newCenter - prevCenter);
+    if (actualMove &gt; 30 &amp;&amp; finalMoveDist &gt; 150) {
+        float actualRatio = (float) actualMove / finalMoveDist;
+        if (actualRatio &gt; 0.8f &amp;&amp; actualRatio &lt; 3.0f) {
+            if (finalScrollUp) scrollUpRatio   = scrollUpRatio   * 0.7f + actualRatio * 0.3f;
+            else               scrollDownRatio = scrollDownRatio * 0.7f + actualRatio * 0.3f;
+            <span class="c">// 0.7 旧 + 0.3 新 的低通滤波, 避免单次异常把比例带偏</span>
+        }
+    }
+    scrollToVisible(node, depth + 1);                <span class="c">// 递归, 直到满足"不滑动"条件</span>
+});
+</pre>
+
+<div class="why"><b>为什么要有 ratio 这个东西</b>
+手势滑 500px，列表实际滚动多少是<strong>无法事先知道</strong>的 —— 取决于 RecyclerView 的 item 高度、惯性、是否有吸顶、上下拉刷新等等。
+所以只能"滑一次、量一次、学一次"。<code>0.7/0.3</code> 的加权是典型的低通滤波：既跟上变化，又不会被某一次异常值带飞。
+<code>日志.txt</code> 里能看到运行时的原始数据，比如 <code>actualRatio=1.06 newRatio=1.21</code>。</div>
+
+<h3 id="c10d">10.4 微信适配：双模式 + 混淆 ID 自动提取</h3>
+
+<p>微信是唯一需要"两层模式"的 App：</p>
+<ul>
+<li><b>导航模式</b>（<code>wechatNavMode</code>）：焦点只在底部 4 个 tab 之间循环，用 <code>collectWechatNavTabs</code> 收集。</li>
+<li><b>内容模式</b>：按页面类型分流 —— 朋友圈卡片 / 通讯录联系人 / 直播卡片 / 通用条目。</li>
+</ul>
+<p>模式切换在 <code>toggleWechatNavMode()</code>（<code>:48-72</code>）：进入时从 <code>wechatLastNavIndex</code> 恢复上次位置，退出时保存并回到 <code>focusClosestToCenter()</code>。</p>
+
+<h4>微信 View ID 会被混淆，所以有了 WechatIds + 自动提取</h4>
+
+<pre><span class="c">// WechatIds.java:21-30  默认值(老设备)</span>
+DEFAULT_CHAT_ITEM_NEW  = "bth";   <span class="c">// 聊天列表项</span>
+DEFAULT_CHAT_ITEM_OLD  = "cj1";
+DEFAULT_NAV_TAB        = "kd_";   <span class="c">// 底部导航栏</span>
+DEFAULT_MOMENTS_CARD   = "nq_";   <span class="c">// 朋友圈卡片</span>
+DEFAULT_CONTACT_NAME   = "hg4";
+DEFAULT_LETTER_INDEX   = "bqq";   <span class="c">// 字母索引</span>
+DEFAULT_ROOT_FRAME     = "kai";
+DEFAULT_SCROLL_LIST    = "gkp";
+DEFAULT_DRAWER_ITEM    = "iwg";
+DEFAULT_MORE_FUNC_BTN  = "b3q";
+</pre>
+
+<div class="danger"><b>同一个 App，不同设备 ID 完全不同</b>
+旧设备(720×1600)：<code>bth / kd_ / hg4 / bqq / iwg / b3q / kai / gkp</code><br>
+新设备(2560×1570)：<code>cj1 / nvt / kbq / cfx / m7k / jga</code><br>
+微信每次版本更新也会变。<b>所以硬编码是不可行的</b> —— 这就是 <code>extractWechatIds()</code>（<code>VoiceAccessibilityService.java:465-575</code>）存在的原因。</div>
+
+<p>提取算法本质是<strong>统计 + 结构特征启发式</strong>，遍历全树后按特征投票：</p>
+<table>
+<tr><th style="width:150px">目标 ID</th><th>判别特征</th></tr>
+<tr><td>导航栏 tab</td><td>出现 ≥3 次 + 位置都在屏幕底部 + clickable</td></tr>
+<tr><td>聊天列表项</td><td>clickable + 出现次数多 + 高度一致</td></tr>
+<tr><td>联系人名</td><td>叶子节点 + text 长度 2~50 + 非标题文字（且出现次数最多者优先）</td></tr>
+<tr><td>滚动容器</td><td>className 含 RecyclerView / ListView</td></tr>
+<tr><td>根 FrameLayout</td><td>宽高 &gt; 屏幕 90%</td></tr>
+<tr><td>朋友圈卡片</td><td>maxHeight &gt; 200（曾经 &gt;100 时误抓到 196px 的"cut"节点）</td></tr>
+</table>
+<p>提取结果存进 SharedPreferences（<code>WechatIds</code> 里的一套 get/set），<strong>下次直接使用，不再重复提取</strong>。当某个收集函数返回空时，会调用 <code>autoExtractByPage()</code>（<code>:575-694</code>）重新提取再收集一次。</p>
+
+<h3>10.5 红框高亮</h3>
+
+<pre><span class="c">// VoiceAccessibilityService.java:2082-2120</span>
+void showHighlightClipped(Rect r) {
+    Rect clipped = new Rect(r);
+    clipped.top    = Math.max(clipped.top,    topLine);    <span class="c">// 裁到校准线范围内</span>
+    clipped.bottom = Math.min(clipped.bottom, botLine);
+    clipped.left   = Math.max(clipped.left,   0);
+    clipped.right  = Math.min(clipped.right,  screenW);
+    ...
+    <span class="c">// GradientDrawable 描边 + TYPE_APPLICATION_OVERLAY 悬浮窗绘制</span>
+}
+</pre>
+<p>裁剪是必须的：巨长卡片本身超出边界，直接画红框会糊满整屏，裁到 <code>[topLine, botLine]</code> 后用户看到的红框永远在"可选区域内"。</p>
+
+<h3>10.6 辅助类的分工</h3>
+<div class="grid">
+<div class="tile"><div class="t">NodeHelper（185 行）</div><div class="d">11 个纯静态节点查找工具：按 text / desc / viewId 递归找节点，判断节点是否含某文本，取子节点文本等。全部带 <code>depth</code> 上限防爆栈。</div><div class="p">hasNodeWithText · findNodeById · getNodeInfo …</div></div>
+<div class="tile"><div class="t">GestureHelper（233 行）</div><div class="d">封装 <code>dispatchGesture</code>：<code>doTap</code> / <code>doSwipe</code> / <code>doSwipeDuration</code> / marker 绘制。坐标一律用比例（0~1），自动乘真实分辨率。</div><div class="p">doSwipe(x1,y1,x2,y2,cb)</div></div>
+<div class="tile"><div class="t">WechatCallController（585 行）</div><div class="d">微信视频通话专用：来电检测（遍历所有窗口找"邀请你视频通话"）、接听重试最多 10 次、控制栏跟随显示/隐藏红框、位置恢复。</div><div class="p">detectWechatIncomingCall</div></div>
+<div class="tile"><div class="t">BlowBarView / Calibration*View</div><div class="d">波形显示（固定 y 轴 MAX=10000 + 随参数移动的红色阈值线）；四条横线 + 两条竖线的校准悬浮窗，可拖动、可保存全局或按 App。</div><div class="p">addSample(a,b) · getLineY()</div></div>
+</div>
+
+<h3>10.7 校准系统</h3>
+<p>六个数值决定"哪些卡片能选、焦点往哪滚"：</p>
+<table>
+<tr><th style="width:150px">变量</th><th style="width:100px">默认</th><th>作用</th></tr>
+<tr><td><code>topLine</code></td><td>微信 226 / 其他 240</td><td>上边界，这条线以上的卡片不收集（避开状态栏）</td></tr>
+<tr><td><code>botLine</code></td><td>屏高-150 / 屏高-100</td><td>下边界，避开底部导航</td></tr>
+<tr><td><code>centerTopLine</code></td><td>top + 3/8 区间</td><td>中心区上界 = 滚动目标区</td></tr>
+<tr><td><code>centerBotLine</code></td><td>top + 5/8 区间</td><td>中心区下界</td></tr>
+<tr><td><code>leftLine</code> / <code>rightLine</code></td><td>屏宽 1/4 与 3/4</td><td>横向边界</td></tr>
+</table>
+<p>存储键支持两级覆盖：<code>calib_top_&lt;包名&gt;</code> 优先，回退到全局 <code>calib_top</code>（<code>MainActivity.java:1148-1151</code> 与 <code>:1569-1572</code>）。所以每个 App 可以有自己的一套边界。</p>
+
+<h2 id="c11"><span class="n">11</span>通信协议全表</h2>
+
+<h3>MCU → App（bulk OUT）</h3>
+<table>
+<tr><th style="width:100px">字节</th><th style="width:130px">含义</th><th>App 端处理</th></tr>
+<tr><td><code>0x02</code></td><td>ENTER 确定</td><td rowspan="12">readLoop 直接回调 <code>onCommandReceived(cmd)</code> → <code>onCommand()</code></td></tr>
+<tr><td><code>0x03</code></td><td>BACK 返回</td></tr>
+<tr><td><code>0x04</code></td><td>PLAY 播放/暂停</td></tr>
+<tr><td><code>0x05</code></td><td>NEXT 下一个</td></tr>
+<tr><td><code>0x06</code></td><td>PREV 上一个</td></tr>
+<tr><td><code>0x07</code></td><td>VOL_UP 音量+</td></tr>
+<tr><td><code>0x08</code></td><td>VOL_DN 音量-</td></tr>
+<tr><td><code>0x09</code></td><td>RETURN 返回选择</td></tr>
+<tr><td><code>0x0A</code></td><td>MODE 模式切换</td></tr>
+<tr><td><code>0x0B</code></td><td>LEFT 左/上翻页</td></tr>
+<tr><td><code>0x0C</code></td><td>RIGHT 右/下翻页</td></tr>
+<tr><td><code>0x0D</code></td><td>VOL_MODE 音量模式</td></tr>
+<tr><td><code>0xFE</code> + 4B</td><td>能量包</td><td><code>meanA_H meanA_L meanB_H meanB_L</code> → <code>onEnergyReceived</code>（波形）</td></tr>
+<tr><td><code>0xFA</code> + 13B</td><td>采集结果</td><td><code>j1 t1 p1_H p1_L a1_H a1_L j2 t2 p2_H p2_L a2_H a2_L gap</code> → <code>onCollectResult</code></td></tr>
+</table>
+<p style="font-size:13px;color:var(--ink2)">采集包里 <code>j</code>=判定(1短/2中/3长)、<code>t</code>=tick 数、<code>p</code>=峰值、<code>a</code>=均值、<code>gap</code>=跨麦间隙。</p>
+
+<h3>App → MCU（bulk IN）</h3>
+<table>
+<tr><th style="width:190px">字节序列</th><th style="width:170px">含义</th><th>触发时机</th></tr>
+<tr><td><code>0xFD</code></td><td>启用能量流</td><td>切到设置页</td></tr>
+<tr><td><code>0xFC</code></td><td>停用能量流</td><td>离开设置页</td></tr>
+<tr><td><code>0xFA</code></td><td>进入采集模式</td><td>点"开始采集"</td></tr>
+<tr><td><code>0xFB + id + vH + vL</code></td><td>设置参数（大端 16 位）</td><td>SeekBar <code>onStopTrackingTouch</code></td></tr>
+</table>
+<table>
+<tr><th style="width:80px">id</th><th style="width:200px">目标变量</th><th>UI 控件</th></tr>
+<tr><td>0</td><td><code>g_blow_threshold</code></td><td>seekThreshold</td></tr>
+<tr><td>1</td><td><code>g_short_max_tick</code></td><td>seekShortMax</td></tr>
+<tr><td>2</td><td><code>g_combo_wait_tick</code></td><td>seekComboWait</td></tr>
+<tr><td>3</td><td><code>g_long_repeat_tick</code></td><td>seekLongRepeat</td></tr>
+<tr><td>4</td><td><code>g_mid_max_tick</code></td><td>seekMidMax</td></tr>
+<tr><td>5</td><td><code>g_min_gap_tick</code></td><td>seekMinGap</td></tr>
+</table>
+
+<div class="warn"><b>id 顺序是乱的（1↔4 与定义顺序不一致）</b>
+<code>phone_control.c</code> 里 case 0/1/2/3/4 分别对应 阈值/短吹上限/组合等待/长吹间隔/中吹上限，
+而 <code>mic_hum.c</code> 里变量定义顺序是 阈值/短/中/组合/长/最小间隔。
+<mark>两边靠 id 数字对齐，不是靠顺序</mark>。改协议时 Three 个地方都要同步：<code>phone_control.c</code> 的 case、<code>MainActivity.sendParam()</code> 的调用、SeekBar 绑定。</div>
+
+<h2 id="c12"><span class="n">12</span>踩坑索引（"为什么代码长这样"）</h2>
+
+<p>读代码时遇到"这写得也太绕了"的地方，多半能在下表找到原因。完整版在 <code>更新记录.txt</code>。</p>
+
+<table>
+<tr><th style="width:70px">编号</th><th style="width:290px">现象</th><th>根因与修法</th></tr>
+<tr><td>坑 1</td><td>START_ACCESSORY 成功后手机重枚举成 Mass Storage</td><td>发完 START 立刻强制端口复位，打断了 AOA 切换。<b>改为等手机自然断开</b></td></tr>
+<tr><td>坑 2</td><td>重连时非 AOA 设备被误判为 AOA</td><td><code>*is_aoa_device=0</code> 写在了 <code>ENUM_RETRY</code> 标签之前，重试时不重置。<b>移到标签之后</b></td></tr>
+<tr><td>坑 3</td><td>软复位（开关 SOF）无效，端口卡死 30s</td><td>软复位不产生总线 reset 信号。<b>改用硬端口复位</b></td></tr>
+<tr><td>坑 4</td><td>连接成功后每 5 秒循环掉线重连</td><td>keepalive 在 App 还没打开 accessory 时 TX 失败 → 误判断线 → 重连 → 再失败。<b>删掉 keepalive，TX 失败只返错误码</b></td></tr>
+<tr><td>坑 5</td><td>USB 信号抖动被误判为断线</td><td><b>加三级防抖</b>：50ms → 100ms → 再查，三次都断才认</td></tr>
+<tr><td>坑 8</td><td>无障碍收不到目标 App 的事件</td><td><code>accessibility_service_config.xml</code> 里的 <code>packageNames</code> 白名单限制了范围。<b>去掉该属性</b>（装新 APK 后须关掉无障碍再重开）</td></tr>
+<tr><td>坑 9</td><td>点"学习"按钮立刻提示学习完成</td><td>收到了本 App 自己的点击事件。<b>排除自身包名</b></td></tr>
+<tr><td>坑 10</td><td>点播放键识别不到（最关键的坑）</td><td>WebView / Compose / 自定义触摸的按钮<b>不产生 TYPE_VIEW_CLICKED</b>。<b>学习模式下彻底放开事件类型与包名限制</b>，并加 2 秒延迟</td></tr>
+<tr><td>坑 11</td><td>USB 被 AOA 占用，看不到 logcat</td><td><b>改用 Toast 把事件信息打在屏幕上</b></td></tr>
+<tr><td>一百一十</td><td>USBHS Device 枚举失败，主机只发复位不发 SETUP</td><td>PHY 高速握手失败降级全速后仍不通。<b>改用 USBFS Device（PA11/PA12）</b>，全速 PHY 信号要求更低</td></tr>
+<tr><td>一百一十二</td><td>U 盘识别但 Windows 格式化失败</td><td>SD 卡留在 DMA 模式但 SDIO 中断被禁 → 写路径死等 30s。<b>切 SD_POLLING_MODE</b></td></tr>
+<tr><td>一百一十三</td><td><code>f_mount failed: 3</code>（FR_NOT_READY）</td><td><code>"1:"</code> 卷号对应 <code>pdrv=1</code>，但 <code>diskio.c</code> 里 <code>DEV_MMC=0</code>。<b>改回 1</b></td></tr>
+<tr><td>一百一十五</td><td>ADS1115 首读返回 0，鼠标一直飘</td><td>芯片未就绪。<b>校准前 Delay 100ms + dummy 读 + 过滤 1000~16000 外异常值</b>；软件 I2C 不要每次重配引脚</td></tr>
+<tr><td>一百零六</td><td>B站巨长卡片"红框不截全也不滑动"</td><td><code>cardTooTall &amp;&amp; inCenter</code> 这个为朋友圈防振荡写的条件误伤了 B站。<b>改为分软件处理</b></td></tr>
+<tr><td>一百零七</td><td>AOA 断连后出现多个读线程 / Receiver 注册崩溃</td><td><b><code>start()</code> 加 <code>unregisterReceiver</code> + 线程 <code>isAlive()</code> 判断</b>，做成可重入</td></tr>
+<tr><td>一百零四</td><td>每次连接都弹 USB 权限对话框</td><td><code>accessory_filter.xml</code> 的 model 还是旧板子 CH32H417，与 MCU 端 <code>AOA_MODEL</code> 不符。<b>改成 CH32V307</b></td></tr>
+<tr><td>坑 6/7</td><td>学习键不自动打开目标应用 / 学习完成无反馈</td><td>补 <code>startActivity</code> + 静态标志位 <code>sLearningCompleted</code> + 自动返回</td></tr>
+</table>
+
+<h2 id="c13"><span class="n">13</span>自测题</h2>
+
+<p>能答出下面 10 题，说明这套代码你基本读通了。答案都能在前面各章找到。</p>
+
+<div class="q"><b>1.</b> 为什么 DMA 必须配成 <code>HalfWord</code> 而不是 <code>Word</code>？<br><span style="color:var(--ink2);font-size:12.5px">（提示：<code>DATAR</code> 寄存器的物理宽度）</span></div>
+<div class="q"><b>2.</b> <code>dma_buf_a</code> 长度是 1024，为什么 HT 中断处理 <code>[0,512)</code> 而 TC 处理 <code>[512,1024)</code>？这样安排图什么？</div>
+<div class="q"><b>3.</b> <code>Auto_Detect_Pos</code> 为什么要"10 次取最小"，而不是取平均？为什么要加 <code>&gt; 5</code> 这个条件？</div>
+<div class="q"><b>4.</b> 一个 tick 是 8ms，那长吹是从第几毫秒开始触发的？重复触发的间隔是多少毫秒？</div>
+<div class="q"><b>5.</b> 为什么 <code>mic_process</code> 返回的命令要先进环形队列，而不是直接 return 给 <code>Phone_Control_Poll</code>？</div>
+<div class="q"><b>6.</b> <code>AOA_Host_Connect</code> 开头为什么要 <code>USBHS_Host_Init(DISABLE)</code> 然后 <code>Delay_Ms(500)</code> 再 ENABLE？</div>
+<div class="q"><b>7.</b> MCU 发的采集包是 14 字节，Android 只收 13 字节 —— 第 1 个字节去哪了？</div>
+<div class="q"><b>8.</b> <code>Adaper.handleCommand()</code> 返回 <code>false</code> 意味着什么？谁会接手？</div>
+<div class="q"><b>9.</b> <code>scrollToVisible</code> 里的 <code>scrollUpRatio</code> 是怎么来的？为什么用 <code>0.7 旧 + 0.3 新</code> 而不是直接用新值？</div>
+<div class="q"><b>10.</b> 不插手机开机，OLED 会显示什么？为什么吹气没有反应？</div>
+
+<div class="note" style="margin-top:22px"><b>下一步可以做的深挖方向</b>
+<ul style="margin:4px 0">
+<li>用 <code>V307_EXAM/USB/USBHS/HOST_KM</code> 之类的官方例程对照读 <code>ch32v30x_usbhs_host.c</code>，把 <code>HOST_EP_PID</code> / toggle / 事务握手彻底搞清楚</li>
+<li>打开 <code>日志.txt</code>，对照代码里的 <code>Log.i(TAG, ...)</code> 复现一次完整的"翻页 + 滚动对齐"过程</li>
+<li>把 <code>EXAM/GPIO/VOICE/V3F/Phone/</code>（H417 版）与 V307 版逐文件 diff，理解双核架构下代码是被怎么拆开的</li>
+</ul></div>
+
+</main>
+
+<footer>
+本手册为只读代码导读，未修改 <code>VOICE_V307/</code> 与 <code>voice_control/</code> 中的任何文件。<br>
+凡标注行号处均以当前工作区实际文件为准（含尚未提交的 HID / ADS1115 / 摇杆改动）。
+</footer>
+
+</body>
+</html>

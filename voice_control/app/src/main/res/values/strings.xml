@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">声音控制(有线版)</string>
+    <string name="accessibility_service_desc">语音控制无障碍服务，用于发送返回键等系统按键</string>
+    <string name="selecttospeak_service_desc">随选朗读服务(用于微信节点兼容，需开启)</string>
+</resources>

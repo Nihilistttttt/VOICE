@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F5F7FA"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="USB: 等待连接..."
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:padding="14dp"
+        android:background="@drawable/bg_status"
+        android:textColor="#FFFFFF"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:id="@+id/selectArea"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="visible"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="请选择要使用的软件"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#333333"
+            android:gravity="center"
+            android:padding="6dp" />
+
+        <LinearLayout
+            android:id="@+id/categoryTabs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginVertical="4dp">
+
+            <TextView
+                android:id="@+id/tabAll"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="全部"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_app_selected"
+                android:textColor="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tabMusic"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="音乐"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_app_normal"
+                android:textColor="#333333" />
+
+            <TextView
+                android:id="@+id/tabVideo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="视频"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_app_normal"
+                android:textColor="#333333" />
+
+            <TextView
+                android:id="@+id/tabNovel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="小说"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_app_normal"
+                android:textColor="#333333" />
+
+            <TextView
+                android:id="@+id/tabAdapted"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="适配"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_app_normal"
+                android:textColor="#333333" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:id="@+id/appScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:layout_marginVertical="6dp">
+
+            <LinearLayout
+                android:id="@+id/appListContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="6dp" />
+
+        </HorizontalScrollView>
+
+        <TextView
+            android:id="@+id/tvNoApp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="该分类下没有可用应用\n请安装应用或点击添加应用按钮"
+            android:textSize="15sp"
+            android:textColor="#999999"
+            android:gravity="center"
+            android:padding="20dp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvControlHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#1976D2"
+        android:gravity="center"
+        android:padding="10dp"
+        android:visibility="gone" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#D0D7DE"
+        android:layout_marginVertical="6dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="操作说明"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="#1976D2"
+        android:padding="4dp" />
+
+    <TextView
+        android:id="@+id/tvGuide"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:text=""
+        android:textSize="15sp"
+        android:textColor="#333333"
+        android:padding="10dp"
+        android:lineSpacingExtra="5dp"
+        android:background="@drawable/bg_guide"
+        android:elevation="2dp" />
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="4dp">
+
+        <Button
+            android:id="@+id/btnAddApp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="添加应用"
+            android:textSize="12sp"
+            android:textColor="#1976D2"
+            android:background="@drawable/bg_btn_outline" />
+
+        <Button
+            android:id="@+id/btnLearn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="学习播放键"
+            android:textSize="12sp"
+            android:textColor="#1976D2"
+            android:background="@drawable/bg_btn_outline" />
+
+        <Button
+            android:id="@+id/btnLearnFs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="学习全屏键"
+            android:textSize="12sp"
+            android:textColor="#1976D2"
+            android:background="@drawable/bg_btn_outline" />
+
+        <Button
+            android:id="@+id/btnRescan"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="重新扫描"
+            android:textSize="12sp"
+            android:textColor="#1976D2"
+            android:background="@drawable/bg_btn_outline" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnTestShort"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="模拟短嗯"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+
+        <Button
+            android:id="@+id/btnTestMid"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="模拟中嗯"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+
+        <Button
+            android:id="@+id/btnTestLong"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="模拟长嗯"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+
+        <Button
+            android:id="@+id/btnTestTriple"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="模拟三短"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+
+        <Button
+            android:id="@+id/btnDebug"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="调试关"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+
+        <Button
+            android:id="@+id/btnCalibrate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="校准边界"
+            android:textSize="12sp"
+            android:textColor="#555555"
+            android:background="@drawable/bg_btn_test" />
+    </LinearLayout>
+
+</LinearLayout>

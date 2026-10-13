@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <color name="brand_primary">#1A73E8</color>
+    <color name="brand_primary_variant">#0D47A1</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+
+    <color name="accent_success">#00C853</color>
+    <color name="accent_warning">#FFB300</color>
+    <color name="accent_error">#FF5252</color>
+    <color name="accent_info">#40C4FF</color>
+
+    <color name="surface_base">#F0F2F5</color>
+    <color name="surface_low">#FFFFFF</color>
+    <color name="surface_mid">#F5F7FA</color>
+    <color name="surface_high">#E8ECF0</color>
+    <color name="surface_overlay">#C8CED4</color>
+
+    <color name="wave_ch0">#1565C0</color>
+    <color name="wave_ch1">#E65100</color>
+    <color name="wave_ch2">#2E7D32</color>
+    <color name="wave_ch3">#F57F17</color>
+    <color name="wave_ch4">#4527A0</color>
+    <color name="wave_ch5">#00838F</color>
+    <color name="wave_ch6">#AD1457</color>
+    <color name="wave_ch7">#4E342E</color>
+    <color name="wave_filtered">#2E7D32</color>
+    <color name="spectrum_bar">#4527A0</color>
+    <color name="spectrum_bar_end">#1A73E8</color>
+    <color name="focus_line">#F57F17</color>
+
+    <color name="grid_line">#E0E4E8</color>
+    <color name="axis_line">#90A4AE</color>
+    <color name="text_primary">#1A1A2E</color>
+    <color name="text_secondary">#607D8B</color>
+    <color name="text_on_surface">#37474F</color>
+
+    <color name="game_note">#4527A0</color>
+    <color name="game_lane_divider">#E0E4E8</color>
+    <color name="game_tap_line">#90A4AE</color>
+    <color name="game_score">#1565C0</color>
+    <color name="game_lives">#2E7D32</color>
+    <color name="game_speed">#E65100</color>
+    <color name="game_btn_base">#E8ECF0</color>
+
+    <color name="direction_left">#1565C0</color>
+    <color name="direction_right">#E65100</color>
+    <color name="arrow_target">#FFFFFF</color>
+    <color name="arrow_correct">#00C853</color>
+    <color name="arrow_wrong">#D50000</color>
+    <color name="training_rest">#607D8B</color>
+    <color name="training_active">#00C853</color>
+    <color name="confidence_high">#00C853</color>
+    <color name="confidence_medium">#FFB300</color>
+    <color name="confidence_low">#FF5252</color>
+    <color name="ipc_diag_ok">#00C853</color>
+    <color name="ipc_diag_warn">#FFB300</color>
+    <color name="ipc_diag_error">#FF5252</color>
+</resources>

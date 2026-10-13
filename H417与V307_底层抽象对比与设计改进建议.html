@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H417 与 V307 底层抽象对比 · 与设计改进建议</title>
+<style>
+:root{
+  --ink:#24262b; --ink2:#5a5f6b; --ink3:#8b909c;
+  --line:#e2e5ea; --bg:#f6f7f9; --card:#ffffff;
+  --blue:#2563eb; --blue-bg:#eef4ff; --blue-ln:#c7dbff;
+  --teal:#0f766e; --teal-bg:#eafaf6; --teal-ln:#b6e7dc;
+  --amber:#b45309; --amber-bg:#fff8ec; --amber-ln:#f6ddb0;
+  --red:#b91c1c; --red-bg:#fef2f2; --red-ln:#f7cccc;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.78 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+#toc{position:fixed;top:0;left:0;width:274px;height:100vh;overflow-y:auto;
+  background:var(--card);border-right:1px solid var(--line);padding:22px 16px 40px;}
+#toc h1{font-size:15px;margin:0 0 4px;font-weight:600}
+#toc .sub{font-size:12px;color:var(--ink3);margin-bottom:16px;line-height:1.55}
+#toc a{display:block;color:var(--ink2);text-decoration:none;font-size:13px;
+  padding:5px 9px;border-radius:6px;margin-bottom:1px}
+#toc a:hover{background:var(--blue-bg);color:var(--blue)}
+#toc .grp{font-size:11px;color:var(--ink3);margin:14px 0 5px;padding-left:9px;letter-spacing:.6px}
+main{margin-left:274px;padding:34px 40px 90px;max-width:1080px}
+h2{font-size:21px;margin:48px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line);font-weight:600}
+h2 .n{display:inline-block;background:var(--blue);color:#fff;font-size:13px;
+  border-radius:6px;padding:1px 8px;margin-right:9px;vertical-align:2px}
+h3{font-size:16px;margin:28px 0 8px;font-weight:600}
+h4{font-size:14px;margin:18px 0 6px;font-weight:600;color:var(--ink2)}
+p{margin:8px 0}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:3px 0}
+code{font-family:var(--mono);font-size:12.5px;background:#eef0f4;
+  padding:1px 5px;border-radius:4px;color:#1f3a5f}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;background:#f2f4f7;
+  border-left:3px solid var(--blue);border-radius:0 8px 8px 0;
+  padding:12px 15px;overflow-x:auto;margin:10px 0;color:#1f2937}
+pre .c{color:#6b7280}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#f0f2f6;font-weight:600;font-size:13px}
+td code{font-size:12px}
+.note,.warn,.why,.danger{border-radius:8px;padding:11px 15px;margin:12px 0;font-size:13.5px;border:1px solid}
+.note{background:var(--blue-bg);border-color:var(--blue-ln)}
+.warn{background:var(--amber-bg);border-color:var(--amber-ln)}
+.why{background:var(--teal-bg);border-color:var(--teal-ln)}
+.danger{background:var(--red-bg);border-color:var(--red-ln)}
+.note b,.warn b,.why b,.danger b{display:block;margin-bottom:3px;font-size:12px;letter-spacing:.5px}
+.note b{color:var(--blue)} .warn b{color:var(--amber)}
+.why b{color:var(--teal)} .danger b{color:var(--red)}
+.lead{font-size:15px;color:var(--ink2);background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:16px 20px;margin:16px 0}
+.tag{display:inline-block;font-size:11px;letter-spacing:.4px;border-radius:4px;
+  padding:1px 6px;margin-right:6px;vertical-align:2px;font-weight:600}
+.t-bug{background:#fde8e8;color:#991b1b}
+.t-smell{background:#fef3c7;color:#92400e}
+.t-fact{background:#dcfce7;color:#166534}
+.t-guess{background:#e0e7ff;color:#3730a3}
+mark{background:#fff3bf;padding:0 3px;border-radius:3px}
+.ok{color:#166534;font-weight:600}
+.bad{color:#991b1b;font-weight:600}
+.mid{color:#92400e;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px}
+.tile .t{font-weight:600;font-size:13.5px;margin-bottom:4px}
+.tile .d{font-size:12.5px;color:var(--ink2);line-height:1.65}
+footer{margin-left:274px;padding:0 40px 60px;color:var(--ink3);font-size:12.5px;max-width:1080px}
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h1>底层抽象对比与改进建议</h1>
+  <div class="sub">H417 版 vs V307 版 hal_gpio / Config<br>代码层 · 框架层 · 整体层（含原理图网表核对）</div>
+
+  <div class="grp">结论</div>
+  <a href="#c0">0 · 结论先行</a>
+  <a href="#c1">1 · 事实基础与方法</a>
+
+  <div class="grp">逐项对比</div>
+  <a href="#c2">2 · 四份文件的逐项差异</a>
+
+  <div class="grp">问题清单</div>
+  <a href="#c3">3 · 代码层（9 条）</a>
+  <a href="#c4">4 · 框架层（6 条）</a>
+  <a href="#c5">5 · 整体层 + 原理图核对（8 条）</a>
+
+  <div class="grp">公平性</div>
+  <a href="#c6">6 · H417 侧同样存在的问题</a>
+
+  <div class="grp">改进</div>
+  <a href="#c7">7 · 改进建议（P0/P1/P2）</a>
+  <a href="#c8">8 · 需你实测复核的清单</a>
+  <a href="#c9">9 · 更正：上一轮我说错的一处</a>
+</nav>
+
+<main>
+
+<h2 id="c0"><span class="n">0</span>结论先行</h2>
+
+<div class="lead">
+你的直觉<strong>方向是对的，但不能笼统地说"V307 不如 H417"</strong>。分三个维度看：
+<ul style="margin:8px 0 0">
+<li><b>hal_gpio 的实现质量</b> —— H417 <span class="bad">明显更好</span>。差异不是风格，是<strong>抽象在说谎</strong>：V307 的 <code>af_num</code> 参数被彻底丢弃，速度档位语义倒挂。</li>
+<li><b>Config.h 的板级配置完整度</b> —— 对各自那块板而言，<span class="bad">V307 更差</span>。而且我把 <code>Config.h</code> 与 <code>电路.txt</code> 的原理图网表做了交叉核对，发现了<strong>一处会造成实际故障的引脚冲突</strong>（见第 5.1 节）。</li>
+<li><b>外设实例抽象</b> —— <span class="ok">V307 反而更好</span>。H417 把 <code>SPI2</code>、<code>DMA2_Channel1</code>、<code>DMA_MuxChannel9</code>、请求号 66 直接写死在 <code>mic_hum.c</code> 里；V307 用 <code>I2S2_SPI_INSTANCE</code> 这类宏封起来了。</li>
+</ul>
+</div>
+
+<p>而且——<strong>两份实现是"同源分叉"</strong>：<code>hal_gpio.h</code> 两份<strong>逐字节相同</strong>，<code>hal_gpio.c</code> 有 80% 相同。所以这不是"两个人写了两种风格"，而是<strong>一份代码移植到 V307 时，把 H417 有硬件支撑的部分留成了空壳</strong>。</p>
+
+<table>
+<tr><th style="width:170px">维度</th><th style="width:200px">H417</th><th style="width:200px">V307</th><th>性质</th></tr>
+<tr><td>抽象是否可信</td><td class="ok">可信</td><td class="bad">说谎</td><td>AF 参数、速度档位</td></tr>
+<tr><td>配置是否完整</td><td class="ok">对 H417 板完整</td><td class="bad">对 V3 板漏 6 项</td><td>少了 HC-05 / ESP8266 / PWR_CTRL / 模拟开关 / 串口 / 板型隔离</td></tr>
+<tr><td>外设实例解耦</td><td class="bad">硬编码</td><td class="ok">宏化</td><td>V307 唯一明显优于 H417 的地方</td></tr>
+<tr><td>上层可复用性</td><td class="ok">有 Serial / 帧协议 / hardware 三层</td><td class="bad">三层全无</td><td>这是"框架差距"的主因</td></tr>
+</table>
+
+<h2 id="c1"><span class="n">1</span>事实基础与方法</h2>
+
+<p>对比对象（都已完整读过）：</p>
+<table>
+<tr><th style="width:330px">文件</th><th style="width:90px">行数</th><th>说明</th></tr>
+<tr><td><code>EXAM/GPIO/VOICE/Common/hal_gpio.h</code></td><td>53</td><td>与 V307 版<b>完全一致</b></td></tr>
+<tr><td><code>EXAM/GPIO/VOICE/Common/hal_gpio.c</code></td><td>186</td><td>H417 实现</td></tr>
+<tr><td><code>VOICE_V307/Common/hal_gpio.h</code></td><td>53</td><td>与 H417 版完全一致</td></tr>
+<tr><td><code>VOICE_V307/Common/hal_gpio.c</code></td><td>219</td><td>V307 实现</td></tr>
+<tr><td><code>EXAM/GPIO/VOICE/Common/Config.h</code> / <code>.c</code></td><td>159 / 28</td><td>含分板型块、串口、I2S</td></tr>
+<tr><td><code>VOICE_V307/Common/Config.h</code> / <code>.c</code></td><td>93 / 26</td><td>含 I2S 实例、OLED、ADS1115、摇杆</td></tr>
+<tr><td>旁证：<code>EXAM/GPIO/VOICE/Common/hardware.c/h</code></td><td>57 / 25</td><td>H417 的顶层硬件入口</td></tr>
+<tr><td>旁证：<code>EXAM/GPIO/VOICE/V3F/Hardware/Serial.c/h</code></td><td>452 / 62</td><td>H417 的串口抽象层</td></tr>
+<tr><td>旁证：<code>EXAM/GPIO/VOICE/V3F/Hardware/voice_protocol.h/c</code></td><td>— / 125</td><td>H417 的帧协议层</td></tr>
+<tr><td>旁证：<code>电路.txt</code>（嘉立创 EDA JSON）</td><td>478 KB</td><td>169 个元件、86 条具名网络 —— 用于核对 Config.h</td></tr>
+</table>
+
+<p>判定用三档标记：</p>
+<p>
+<span class="tag t-fact">事实</span>可直接在代码/网表里指出行号或网络名的结论；
+<span class="tag t-guess">推断</span>由代码路径 + 电路链推出的结论，附验证方法；
+<span class="tag t-bug">缺陷</span>会引发错误行为的问题；
+<span class="tag t-smell">异味</span>不引发错误但会持续增加维护成本。
+</p>
+
+<div class="why"><b>先说一个被我自己排除掉的"假问题"</b>
+我一度怀疑 <code>sdio_test.c</code> 里的 <code>s_rd_buf</code> / <code>s_wr_buf</code>（各 16 KB）会白占 32 KB RAM——因为在源文件里它们是普通静态数组。
+但核对 <code>obj/TEST-INMP441-DOUBLE.map</code> 后发现，它们落在 <b>"Discarded input sections"</b> 区块里：工程开启了 <code>-ffunction-sections -fdata-sections -Wl,--gc-sections</code>，未被引用的代码和数据<strong>确实会被链接器丢弃</strong>。
+实测占用：<code>.text</code> 约 24~25 KB + <code>.vector</code> 444 B ≈ <b>FLASH 10%</b>；<code>.bss</code> 约 8.4 KB + <code>.data</code> 约 320 B + 栈 2048 B ≈ <b>RAM 16%</b>（<code>TEST_MODE=2</code> 构建实测；随模式变化，引用时需标注构建）。<mark>资源不是这个项目的瓶颈</mark>，问题全在可维护性上。</div>
+
+<h2 id="c2"><span class="n">2</span>四份文件的逐项差异</h2>
+
+<h3>2.1 hal_gpio.h —— 完全相同</h3>
+<p>包括引脚编码宏、8 档模式枚举、4 档速度枚举、3 种触发沿、10 个 API 原型，两份<strong>逐字节一致</strong>。也就是说：<mark>接口设计上没有问题，问题全在 V307 的实现兑现不了这个接口</mark>。</p>
+
+<h3>2.2 hal_gpio.c —— 差异集中在这几处</h3>
+
+<table>
+<tr><th style="width:120px">位置</th><th style="width:290px">H417</th><th style="width:290px">V307</th></tr>
+<tr><td>端口表</td><td><code>GPIOA..GPIOF</code>（6 个）</td><td><code>GPIOA..GPIOE</code>（5 个，无 GPIOF）<span class="ok">✔ 正确</span></td></tr>
+<tr><td>时钟宏</td><td><code>RCC_HB2Periph_GPIOx</code></td><td><code>RCC_APB2Periph_GPIOx</code><span class="ok">✔ 正确</span></td></tr>
+<tr><td><b>AF 配置</b></td><td><code>GPIO_PinAFConfig(gpio, pin, af_num)</code></td><td><b>空 if 块，什么都不做</b>（见 3.1）</td></tr>
+<tr><td>速度预置</td><td><code>GPIO_Speed_Very_High</code></td><td><code>GPIO_Speed_50MHz</code></td></tr>
+<tr><td><b>速度映射</b></td><td>Low/Medium/High/Very_High <b>1:1</b></td><td>LOW→10MHz，MEDIUM→2MHz，HIGH→50MHz，<b>VERY_HIGH→50MHz</b></td></tr>
+<tr><td>AF_INPUT 映射</td><td><code>GPIO_Mode_IN_FLOATING</code></td><td><code>GPIO_Mode_IN_FLOATING</code><span class="ok">✔ 相同</span></td></tr>
+<tr><td><b>EXTI 中断数</b></td><td><b>2 个</b>：<code>EXTI7_0</code>、<code>EXTI15_8</code></td><td><b>7 个</b>：<code>EXTI0..4</code>、<code>EXTI9_5</code>、<code>EXTI15_10</code></td></tr>
+<tr><td>EXTI 中断号</td><td><code>pin&lt;=7 ? EXTI7_0 : EXTI15_8</code></td><td><code>pin&lt;=4 ? EXTI0+n : pin&lt;=9 ? EXTI9_5 : EXTI15_10</code><span class="ok">✔ 符合 V307 分组</span></td></tr>
+<tr><td><b>pending 检查</b></td><td><code>pending &amp; enabled</code> 后才回调</td><td><code>EXTI0..4</code> <b>不检查</b>，直接回调</td></tr>
+</table>
+
+<div class="note"><b>小结：V307 的 EXTI「分组方式」是对的，但「写法」退化了</b>
+V307 硬件确实是 0~4 独立 + 9_5 + 15_10 这 7 个向量，所以拆成 7 个函数是<strong>硬件决定的，不是设计错误</strong>。
+真正退步的是：H417 用 2 个循环处理函数统一处理了 16 条线，V307 写成了 7 个函数、其中 5 个是复制粘贴（<code>EXTI0..EXTI4</code> 只差一个数组下标）。
+而且 H417 在回调前检查 <code>pending &amp; enabled</code>，V307 的 <code>EXTI0..4</code> 无条件调用——万一出现"回调已注册但线路已关闭"的组合，就会误触发。</div>
+
+<h3>2.3 Config.c —— 都缺一个统一的时钟层</h3>
+<table>
+<tr><th style="width:230px">函数</th><th style="width:220px">H417</th><th>V307</th></tr>
+<tr><td><code>XXX_ClockEnable</code></td><td><code>USART_ClockEnable</code></td><td><code>SPI_ClockEnable</code></td></tr>
+<tr><td><code>DMA_ClockEnable</code></td><td><code>RCC_HBPeriph_DMAx</code></td><td><code>RCC_AHBPeriph_DMAx</code></td></tr>
+<tr><td><code>AFIO_ClockEnable</code></td><td><code>RCC_HB2Periph_AFIO</code></td><td><code>RCC_APB2Periph_AFIO</code></td></tr>
+<tr><td>写法</td><td colspan="2">都是 <code>if / else if</code> 链比对实例指针 —— 每加一个外设就要改这个函数</td></tr>
+</table>
+
+<p><b>两处共同的架构问题</b><span class="tag t-smell">异味</span>：</p>
+<ol>
+<li><b>时钟使能被拆到两个文件</b>：GPIO 时钟在 <code>hal_gpio.c</code>，SPI/DMA/AFIO 时钟在 <code>Config.c</code>。这正是"<code>Hal_GPIO_Init</code> 不自动开时钟"这个著名坑的根源——因为 <code>Hal_GPIO_Init</code> 所在的文件里根本没有其它外设的时钟 API。</li>
+<li><b>不支持"关闭"</b>：只有 <code>ENABLE</code> 一条路径。低功耗场景（高位截瘫患者设备大概率要电池供电）需要 <code>ClockDisable</code>。</li>
+</ol>
+
+<h3>2.4 Config.h —— 组织方式的根本差异</h3>
+
+<table>
+<tr><th style="width:150px">对比项</th><th style="width:280px">H417</th><th>V307</th></tr>
+<tr><td>板型宏</td><td><code>BOARD_V1</code>（默认）/ <code>BOARD_V2</code></td><td><code>BOARD_V1</code>/<code>V2</code>/<code>V3</code>，<b>默认 V3</b></td></tr>
+<tr><td>分组方式</td><td><b>按板型整块分组</b>：<code>#if defined(BOARD_V1)</code> 包住该板全部外设</td><td><b>按外设平铺</b>：只有 OLED 片选做了 <code>#ifdef BOARD_V3</code> 分板</td></tr>
+<tr><td>隐藏技巧</td><td>串口段包在 <code>#ifdef __SERIAL_H</code> 里（隐式依赖，见 6.1）</td><td>无</td></tr>
+<tr><td>串口</td><td><b>完整</b>：USART1/USART2 + 波特率 + TX/RX 引脚 + AF + DMA 通道 + DMAMUX + 请求号 + 中断号 + 缓冲尺寸</td><td><b>无</b>（只在 <code>phone_control.c:43</code> 里裸配 PA10）</td></tr>
+<tr><td>I2S 引脚</td><td>只有 WS/CK/SD + <code>GPIO_AF5/AF6</code>（<b>真实 AF 号</b>）</td><td>WS/CK/SD + <code>I2S2_GPIO_AF 0</code>（<b>假 AF 号</b>，见 3.2）</td></tr>
+<tr><td>I2S 外设实例</td><td class="bad">无。业务层写死 <code>SPI2</code>/<code>SPI3</code>/<code>DMA2_Channel1</code>/<code>DMA_MuxChannel9</code>/请求号 <code>66</code></td><td class="ok"><code>I2S2_SPI_INSTANCE</code>/<code>_DMA_CHANNEL</code>/<code>_DMA_FLAG_TC</code>/<code>_DMA_FLAG_HT</code>/<code>_DMA_IRQn</code></td></tr>
+<tr><td>OLED</td><td>无</td><td>5 个引脚 + <code>SPI1</code> 实例，片选分板型</td></tr>
+<tr><td>ADS1115 / 摇杆 / 压差</td><td>无</td><td>SCL/SDA/ALERT + I2C 地址 + 摇杆按键 + 轴通道号 + 2 个片内 ADC 通道</td></tr>
+<tr><td><b>板上有但没写</b></td><td>—</td><td><b>HC-05 蓝牙、ESP8266 WiFi、CH340、U1/U4/U7 模拟开关、PWR_CTRL 电源控制、SD 卡检测</b></td></tr>
+</table>
+
+<div class="danger"><b>V307 的 Config.h 有一个结构性的自相矛盾</b>
+它把 I2S2/I2S3 一整段标注为 <code>/* 板无关, V307 官方引脚 */</code>，然后默认选中 <code>BOARD_V3</code>。
+但 V3 板上这几个脚<strong>根本没有麦克风</strong>（见 5.1）。<mark>"板无关" 这个注释本身就是错的</mark> —— 麦克风接在哪是板上决定的，必然与板型相关。</div>
+
+<h2 id="c3"><span class="n">3</span>代码层问题（9 条）</h2>
+
+<h3>3.1 <span class="tag t-bug">缺陷</span>af_num 参数被彻底丢弃</h3>
+<p>这是最硬的一条证据。<code>VOICE_V307/Common/hal_gpio.c:42-44</code>：</p>
+<pre>    <span class="c">// hal_gpio.c:42  空 if 块 —— 什么也不做</span>
+    if (mode == HAL_GPIO_MODE_AF_PP || mode == HAL_GPIO_MODE_AF_OD || mode == HAL_GPIO_MODE_AF_INPUT) {
+
+    }
+</pre>
+<p>对比 <code>EXAM/GPIO/VOICE/Common/hal_gpio.c:42-44</code>：</p>
+<pre>    if (mode == HAL_GPIO_MODE_AF_PP || mode == HAL_GPIO_MODE_AF_OD || mode == HAL_GPIO_MODE_AF_INPUT) {
+        GPIO_PinAFConfig(gpio, pin, af_num);      <span class="c">// ← 真实生效</span>
+    }
+</pre>
+<p><b>为什么 V307 只能留空</b>：<code>VOICE_V307/Peripheral/inc/</code> 下<strong>不存在 <code>GPIO_PinAFConfig</code></strong>（已 grep 确认）。V307 的复用功能由 <code>GPIO_Mode</code> 直接决定（<code>AF_PP</code>/<code>AF_OD</code>/<code>AF_INPUT</code> 三种），<strong>无法选择同一引脚的第二个复用功能</strong>。</p>
+<div class="warn"><b>后果不是"少个功能"，而是"接口在骗人"</b>
+任何调用者写 <code>Hal_GPIO_Init(pin, HAL_GPIO_MODE_AF_PP, speed, 5)</code>，会以为自己选了 AF5。
+实际上 <code>5</code> 被忽略，拿到的是该引脚的默认复用功能。
+<code>V307_PERIPHERAL</code> 的手册查下来：PA15/PB3 在 V307 上的默认复用是 <code>JTDI/JNTRST</code>（JTAG），<b>不是 I2S3</b>。
+所以 I2S3 那三个引脚能不能真的工作，取决于 V307 是否对这三个脚实现了"按 Mode 选 AF"的隐式重映射 —— 这一点从代码看不出保证，<mark>建议实测波形确认</mark>。</div>
+
+<h3>3.2 <span class="tag t-bug">缺陷</span>Config.h 里 <code>I2S2_GPIO_AF 0</code> 是假值</h3>
+<p><code>Config.h:22</code> 和 <code>:38</code> 分别定义 <code>I2S2_GPIO_AF 0</code>、<code>I2S3_GPIO_AF 0</code>，随后被 <code>mic_hum.c:484-491</code> 当作参数传入 <code>Hal_GPIO_Init</code>。</p>
+<p>而 H417 版是 <code>GPIO_AF5</code> / <code>GPIO_AF6</code> —— <b>真值，且真的被用上</b>。</p>
+<p>这是个"<strong>看着可移植、实际不可移植</strong>"的配置项。更糟的是它伪装成了与 H417 同构的接口，下一个接手的人会以为改这个值就能换复用功能。</p>
+
+<h3>3.3 <span class="tag t-bug">缺陷</span>速度档位语义倒挂，4 档只有 3 个实值</h3>
+<pre><span class="c">// V307 的底层枚举（ch32v30x_gpio.h:24-26）</span>
+GPIO_Speed_10MHz = 1, GPIO_Speed_2MHz = 2, GPIO_Speed_50MHz = 3
+
+<span class="c">// H417 的底层枚举（ch32h417_gpio.h:25-28）</span>
+GPIO_Speed_Low = 0, GPIO_Speed_Medium = 1, GPIO_Speed_High = 2, GPIO_Speed_Very_High = 3
+
+<span class="c">// V307 的映射（hal_gpio.c:57-62）</span>
+HAL_GPIO_SPEED_LOW       → GPIO_Speed_10MHz
+HAL_GPIO_SPEED_MEDIUM    → GPIO_Speed_2MHz      <span class="c">// ← 比 LOW 慢 5 倍</span>
+HAL_GPIO_SPEED_HIGH      → GPIO_Speed_50MHz
+default (VERY_HIGH)      → GPIO_Speed_50MHz     <span class="c">// ← 与 HIGH 相同</span>
+</pre>
+<p>调用 <code>HAL_GPIO_SPEED_LOW</code> 本意是"最慢、EMI 最小"，实际拿到 10 MHz；<code>MEDIUM</code> 拿到 2 MHz。同时 <code>HIGH</code> 与 <code>VERY_HIGH</code> 完全等价。</p>
+<div class="why"><b>当前实际影响：低</b>
+项目里所有调用都传 <code>HAL_GPIO_SPEED_HIGH</code> 或 <code>VERY_HIGH</code>（都映射到 50 MHz），<code>LOW</code>/<code>MEDIUM</code> <strong>从未被使用</strong>。
+但如果将来为了降 EMI 或降功耗去用 <code>LOW</code>，会得到反效果。这是典型的"埋着的地雷"。</div>
+
+<h3>3.4 <span class="tag t-bug">缺陷</span>引脚掩码静默截断（两端共有）</h3>
+<pre><span class="c">// hal_gpio.c:34（两份都有）</span>
+uint16_t pin_mask = 1UL &lt;&lt; pin;      <span class="c">// pin 来自 enc &amp; 0xFFFF, 可以是 0~65535</span>
+</pre>
+<p>若 <code>pin &gt; 15</code>（比如手误写成 <code>HAL_GPIO_PIN(1, 20)</code>），<code>1UL &lt;&lt; 20 = 0x100000</code> 截断成 <code>uint16_t</code> 后是 <strong>0</strong>。于是 <code>GPIO_Init</code> 收到 <code>GPIO_Pin = 0</code>，<strong>静默什么都不做</strong>，没有任何告警。</p>
+<p><code>Hal_GPIO_Read</code> 同理：<code>GPIO_ReadInputDataBit(port, 1UL &lt;&lt; pin)</code> 把 32 位常量传进 <code>uint16_t</code> 形参。</p>
+<p>另外 <code>pin_enc</code> 编码占 16 位端口 + 16 位引脚，但没有任何 API 校验合法性；且 <code>HAL_GPIO_PORT()</code> 返回 <code>uint8_t</code>，而编码允许 <code>port</code> 到 16 位——<b>约定与实际不匹配</b>。</p>
+
+<h3>3.5 <span class="tag t-smell">异味</span>EXTI 全量接管，堵死其它模块</h3>
+<p><code>hal_gpio.c:159-220</code> <strong>无条件定义</strong>了 <code>EXTI0..EXTI4</code>、<code>EXTI9_5</code>、<code>EXTI15_10</code> 七个强符号。</p>
+<p>实测后果（<code>obj/TEST-INMP441-DOUBLE.map</code> 第 2886~2906 行）：这 7 个处理函数 + <code>s_exti_callback[16]</code> 数组<strong>全部进入最终镜像</strong>——因为它们被中断向量表 <code>.vector</code> 直接引用，<code>--gc-sections</code> 收不掉。</p>
+<p>而全项目<strong>没有任何地方调用过 <code>Hal_GPIO_IRQ_*</code></strong>（已 grep 确认，H417 侧也一样）。</p>
+<div class="warn"><b>真正的问题不是那点 flash，而是"没有退路"</b>
+集成任何自带 EXTI 处理函数的第三方驱动（SD 卡检测、ADS1115 ALERT 中断、蓝牙 STATE 中断）时，会直接<strong>重复符号链接失败</strong>。
+被迫绕道 HAL 的 <code>void(*)(void)</code> 回调——而这个回调签名<strong>没有参数</strong>，无法区分是哪条线触发。</div>
+
+<h3>3.6 <span class="tag t-bug">缺陷</span>回调表非 volatile、无重入保护（两端共有）</h3>
+<pre>static void (*s_exti_callback[16])(void) = {NULL};   <span class="c">// 缺 volatile</span>
+void Hal_GPIO_IRQ_Config(...) {
+    s_exti_callback[pin] = callback;                 <span class="c">// 在 EXTI_Init 之前写</span>
+    GPIO_EXTILineConfig(...);  EXTI_Init(...);  NVIC_EnableIRQ(...);
+}
+</pre>
+<p>两个问题：</p>
+<ul>
+<li>数组非 <code>volatile</code>，编译器理论上可以把它缓存在寄存器里（虽然本工程 <code>-Os</code> 下大概率不会）。</li>
+<li>回调<strong>先注册再使能线路</strong>。如果在 <code>EXTI_Init</code> 与 <code>NVIC_EnableIRQ</code> 之间发生了残留 pending 位，回调会在"注册完成但配置未完成"的窗口里被调用。</li>
+</ul>
+<p>安全顺序应是：<code>EXTI_ClearITPendingBit</code> → <code>EXTI_Init</code> → <strong>写回调</strong> → <code>NVIC_EnableIRQ</code>。</p>
+
+<h3>3.7 <span class="tag t-smell">异味</span>时钟使能分裂在两个文件</h3>
+<p><code>GPIO_ClockEnable</code> 在 <code>hal_gpio.c</code>，而 <code>SPI_ClockEnable</code> / <code>DMA_ClockEnable</code> / <code>AFIO_ClockEnable</code> 在 <code>Config.c</code>。这直接导致 <code>mic_hum.c:469-478</code> 开头出现连续 10 行 <code>ClockEnable</code> —— 这种"仪式感"代码就是设计缺陷的外在症状。</p>
+
+<h3>3.8 <span class="tag t-smell">异味</span>芯片寄存器裸操作泄漏到业务层</h3>
+<pre><span class="c">// mic_hum.c:481</span>
+AFIO-&gt;PCFR1 = (AFIO-&gt;PCFR1 &amp; ~AFIO_PCFR1_SWJ_CFG) | AFIO_PCFR1_SWJ_CFG_JTAGDISABLE;
+</pre>
+<p>为了给 I2S3 腾出 PA15/PB3，<code>mic_hum.c</code>（业务层）直接读写 AFIO 寄存器。这本该是 <code>Hal_AFIO_DisableJTAG()</code> 这种 HAL 函数的职责。</p>
+<p>另外这个读改写在写之前没有关中断，也没有考虑"如果将来需要保留 JTAG"的分支。</p>
+
+<h3>3.9 <span class="tag t-smell">异味</span>中断处理散落 5 个文件</h3>
+<table>
+<tr><th style="width:200px">文件</th><th>定义的 IRQHandler</th></tr>
+<tr><td><code>Common/hal_gpio.c</code></td><td>EXTI0..4、EXTI9_5、EXTI15_10（<b>7 个</b>）</td></tr>
+<tr><td><code>Phone/mic_hum.c</code></td><td>DMA1_Channel4、DMA2_Channel1</td></tr>
+<tr><td><code>Phone/ch32v30x_usbfs_device.c</code></td><td>USBFS</td></tr>
+<tr><td><code>Phone/sdio_sd.c</code></td><td>SDIO</td></tr>
+<tr><td><code>Phone/usbhs_dev.c</code></td><td>USBHS</td></tr>
+</table>
+<p>H417 侧是 3 个文件（<code>hal_gpio.c</code>、<code>Serial.c</code>、<code>mic_hum.c</code>）。集中不集中各有道理（就近维护也有优点），但代价是：<strong>想知道"这个工程实际用了哪些中断，只能全局搜索"</strong>。而 <code>User/ch32v30x_it.c</code>（本该是中断的总入口）里只有 <code>NMI_Handler</code> 和 <code>HardFault_Handler</code>，完全名不副实。</p>
+
+<h2 id="c4"><span class="n">4</span>框架层问题（6 条）</h2>
+
+<h3>4.1 <span class="tag t-smell">异味</span>没有硬件入口层，main.c 背了 250 行模式代码</h3>
+<table>
+<tr><th style="width:130px"></th><th style="width:200px">H417</th><th>V307</th></tr>
+<tr><td>入口文件</td><td><code>main.c</code> <b>59 行</b>：只做时钟/串口/调用 <code>Hardware()</code></td><td><code>main.c</code> <b>305 行</b></td></tr>
+<tr><td>模式分发</td><td><code>hardware.c</code> 里的 <code>Hardware()</code>，用 <code>SYSTEM_MODE</code> 宏 + <code>MODE_GPIO_TOGGLE</code>/<code>MODE_PHONE_CONTROL</code>/<code>MODE_DUAL_MIC_TEST</code> 三个具名常量</td><td>直接在 <code>main.c</code> 里用 <code>#if TEST_MODE == 1/2/3/4/5/0</code> 六个魔法数字</td></tr>
+<tr><td>多核支持</td><td><code>#if defined(Core_V3F)</code> 分发，V5F 走空循环</td><td>单核，无需</td></tr>
+</table>
+<p>V307 的 <code>main.c</code> 里：<code>TEST_MODE 2</code> 的 U 盘逻辑 ~46 行、<code>TEST_MODE 3</code> 的 FatFs 读取 ~84 行、<code>TEST_MODE 5</code> 的摇杆鼠标 ~66 行——<strong>这些不是"初始化"，是完整的功能实现</strong>，塞在入口文件里导致它既难读也几乎无法测试。</p>
+
+<h3>4.2 <span class="tag t-smell">异味</span>没有串口抽象层（差距最大的一处）</h3>
+<p>H417 的 <code>Serial.c</code>（452 行）提供的是<strong>产线级驱动</strong>：</p>
+<table>
+<tr><th style="width:200px">能力</th><th style="width:190px">H417 Serial.c</th><th>V307</th></tr>
+<tr><td>结构</td><td><code>Serial_CtrlBlock</code> 控制块 + <code>Serial_Ctrl[2]</code> 双实例表，配置<strong>数据驱动</strong></td><td>无</td></tr>
+<tr><td>RX</td><td>DMA + <code>USART_IT_IDLE</code> 空闲中断<strong>自动分帧</strong>，双缓冲 <code>RxPacket</code>/<code>RxPacketBuf</code></td><td><code>phone_control.c:199-225</code> 主循环 <code>USART_GetFlagStatus(RXNE)</code> <b>一次收 1 字节</b></td></tr>
+<tr><td>TX</td><td>DMA + <b>环形缓冲</b>（debug 2048 / wifi 8192 字节）+ <code>TxDropCount</code> 溢出计数</td><td><code>debug.c</code> 的 <code>printf</code> —— <b>阻塞轮询，2 Mbps 下每次打印都卡住主循环</b></td></tr>
+<tr><td>打印 API</td><td><code>Serial_Dbg_Printf()</code> / <code>Serial_Printf(port,...)</code>，<code>vsnprintf</code> + DMA 非阻塞</td><td>裸 <code>printf()</code>，阻塞</td></tr>
+<tr><td>中断组织</td><td><code>USART_IRQ_Handler(port)</code> 单函数多实例复用</td><td>无（RX 靠轮询）</td></tr>
+</table>
+<div class="warn"><b>这个差距有实际后果</b>
+<code>mic_hum.c</code> 里每 8ms 的 tick 都可能打印（<code>Mic_Hum_TestLoop</code> 更是每 tick 一行），
+而 V307 的 <code>printf</code> 是<mark>阻塞</mark>的。在 2 Mbps 下打印约 60 字节需要 ~0.3ms，
+一旦打印密集就会挤压 <code>Phone_Control_Poll</code> 的节奏，进而影响吹气响应的时延。
+H417 的 DMA 环形发送 + 溢出计数就是为这个场景设计的。</div>
+
+<h3>4.3 <span class="tag t-smell">异味</span>没有帧协议层</h3>
+<p>H417 的 <code>voice_protocol.h</code> 定义了一套完整的帧协议：</p>
+<pre><span class="c">// voice_protocol.h:12-20</span>
+帧格式: 0xAA 0x55 body[...] 0x7E
+  body 内若出现 0x7D(ESC) 则下一字节 XOR 0x20 还原
+  body[1] = cmd, body[2..3] = pay_len(小端), body[8..] = payload,
+  末尾 checksum16 (对 body 求和)
+
+<span class="c">// 命令码成对定义（请求 + ACK）</span>
+CMD_PING/CMD_PING_OK, CMD_CONNECT/CMD_CONNECT_OK,
+CMD_TAP/CMD_TAP_OK, CMD_SWIPE, CMD_KEY, CMD_TEXT,
+CMD_SCREENSHOT, CMD_GET_INFO, CMD_GET_BATTERY,
+CMD_GPIO_SET / RESET / TOGGLE / READ, CMD_ERR
+
+<span class="c">// 回调式分发，业务层只实现一个函数</span>
+void Voice_Protocol_OnFrame(uint8_t cmd, const uint8_t *payload, uint16_t payload_len);
+</pre>
+<p>具备：<b>帧同步头 + 转义（解决 payload 内含保留字节）+ 校验和 + 请求/应答配对 + 错误码 + 回调分发</b>。</p>
+<p>V307 侧则完全相反：<code>phone_control.c:244-278</code> 手写 4 状态解析器处理 <code>0xFB+id+vH+vL</code>，<strong>无校验、无帧头、无转义</strong>；采集包 14 字节也是硬编码 <code>buf[14] = {0xFA, ...}</code>。</p>
+<div class="why"><b>为什么这对本项目重要</b>
+两条链路（USB AOA bulk 与串口）都靠"某几个字节恰好不会出现在数据里"来保证不歧义。
+现在命令码只占 <code>0x02~0x0D</code>，能量值可能落在任意 16 位，
+<mark>只因为能量包有 0xFE 前缀且长度固定 5，才没冲突</mark>。一旦要加"带 payload 的命令"（比如让 App 下发 App 包名），这套裸协议立刻失效。</div>
+
+<h3>4.4 <span class="tag t-smell">异味</span>Config.h 不是唯一真源，配置被切成四块</h3>
+<table>
+<tr><th style="width:230px">配置类别</th><th style="width:200px">现在放在哪</th><th>应该放在哪</th></tr>
+<tr><td>引脚 / 外设实例 / 板型</td><td><code>Common/Config.h</code></td><td>同左（保留）</td></tr>
+<tr><td>外设时钟</td><td><code>Common/Config.c</code></td><td rowspan="3">合并为 <code>hal_clock.h/c</code>：一个 <code>Hal_Clock_Enable(HAL_CLK_SPI2)</code>，内部查表</td></tr>
+<tr><td>GPIO 时钟</td><td><code>Common/hal_gpio.c</code></td></tr>
+<tr><td>AFIO + JTAG 释放</td><td><code>Phone/mic_hum.c</code> 裸寄存器</td></tr>
+<tr><td>编译模式</td><td><code>Phone/mode.h</code></td><td>合并进 <code>Config.h</code> 的板型/功能块</td></tr>
+<tr><td>运行时参数默认值</td><td><code>Phone/mic_hum.c:24-29</code> 全局变量初始化</td><td><code>Config.h</code> 宏 + <code>mic_hum.c</code> 引用，便于统一调参</td></tr>
+</table>
+
+<h3>4.5 <span class="tag t-smell">异味</span>构建包含靠"文件在不在"，不靠特性开关</h3>
+<p><code>obj/Phone/subdir.mk</code> 无条件编译 <b>17 个 .c</b>：<code>OLED.c</code>、<code>ads1115.c</code>、<code>aoa_host.c</code>、<code>ch32v30x_usbfs_device.c</code>、<code>diskio.c</code>、<code>ff.c</code>、<code>ffsystem.c</code>、<code>ffunicode.c</code>、<code>joystick.c</code>、<code>mic_hum.c</code>、<code>phone_control.c</code>、<code>sdio_sd.c</code>、<code>sdio_test.c</code>、<code>sw_udisk.c</code>、<code>usb_desc.c</code>、<code>usbhs_dev.c</code>、<code>message</code>。</p>
+<p>其中 <code>ff.c</code>(6982) + <code>ffunicode.c</code>(15593) = <b>22575 行</b>，占 <code>Phone/</code> 目录源码的 63%。而 <code>TEST_MODE=0</code>（正式吹气模式）一行都用不到。</p>
+<p>目前的"排除手段"是<strong>把扩展名改成 <code>.bak</code></strong>：<code>usbhs_dev.c/h.bak</code>、<code>ch32v30x_usbfs_host.c.bak</code>。原因是 MounRiver Studio 会重新生成 <code>subdir.mk</code>，手工编辑会被覆盖。</p>
+<div class="warn"><b>代价（不夸大）</b>
+由于 <code>--gc-sections</code> 开着，<b>flash/RAM 没有被浪费</b>（已实测：约 10% / 约 16%，随 <code>TEST_MODE</code> 变化）。
+真正的代价是：<b>编译时间</b>（每次全量编译 2 万多行 FatFs）、<b>警告噪音</b>（<code>-Wunused</code>）、以及"改一个文件不知道会不会影响别的模式"的心理负担。</div>
+
+<h3>4.6 <span class="tag t-smell">异味</span>没有错误码/日志级别体系</h3>
+<p>V307 侧的错误传递是"<code>printf</code> 一句话 + 返回 int"，<code>AOA_Err_t</code> 是本项目里唯一的枚举错误码（<code>aoa_host.h</code>），<code>sdio_sd.c</code> 有 <code>SD_Error</code>，但两者不共享。</p>
+<p>H417 侧有 <code>CMD_ERR</code> 统一错误码 + <code>Voice_Protocol_SendError()</code>。</p>
+<p>更实际的问题是：<strong>正式的 <code>TEST_MODE=0</code> 构建里，<code>printf</code> 全量开启</strong>。没有 <code>LOG_LEVEL</code> / <code>DEBUG_PRINTF</code> 之类的编译开关——出货固件和调试固件在日志行为上完全一样。</p>
+
+<h2 id="c5"><span class="n">5</span>整体层问题（8 条）</h2>
+
+<div class="danger"><b>本章是本次分析最重要的部分</b>
+前两章是"代码写得好不好"，本章是"配置和实物对不对得上"。后者会造成<strong>真实故障</strong>，而不是维护成本。</div>
+
+<h3>5.1 <span class="tag t-bug">缺陷</span>PB5 冲突：Config.h 说是 I2S3_SD，板子上是电源控制脚</h3>
+
+<p><b>代码侧证据链（事实）</b></p>
+<pre><span class="c">// 1) Config.h:37  把 PB5 定义为 I2S3 的数据线</span>
+#define I2S3_SD_PIN_ENC        HAL_GPIO_PIN(1, 5)      <span class="c">// PB5</span>
+
+<span class="c">// 2) mic_hum.c:491  初始化时把它配成复用浮空输入</span>
+Hal_GPIO_Init(I2S3_SD_PIN_ENC, HAL_GPIO_MODE_AF_INPUT, HAL_GPIO_SPEED_VERY_HIGH, I2S3_GPIO_AF);
+<span class="c">//    HAL_GPIO_MODE_AF_INPUT → GPIO_Mode_IN_FLOATING</span>
+
+<span class="c">// 3) main.c:53-57  更早的时候，同一个 PB5 被配成推挽输出并置高</span>
+GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_5;
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+GPIO_Init(GPIOB, &amp;GPIO_InitStructure);
+GPIO_SetBits(GPIOB, GPIO_Pin_5);
+</pre>
+
+<p><b>原理图侧证据链（事实，来自 <code>电路.txt</code> 网表）</b></p>
+<pre>U15.91  name=PB5  net=<b>PWR_CTRL</b>
+
+R12 (4.7kΩ):  pin1 → $1N2305       pin2 → PWR_CTRL
+R11:          pin1 → GND           pin2 → $1N2305     <span class="c">// 基极下拉</span>
+Q3 (NPN):     1(Base) → $1N2305    2(E) → GND    3(C) → $1N1852
+R10:          pin1 → 5V_IN         pin2 → $1N1852    <span class="c">// Q2 栅极上拉到源极</span>
+Q2 (P-MOS):   1(G) → $1N1852       2(S) → 5V_IN  3(D) → <b>VPHONE</b>
+</pre>
+
+<p><b>推导（推断）</b></p>
+<table>
+<tr><th style="width:150px">PB5 状态</th><th>Q3</th><th>Q2 栅极</th><th>Q2</th><th>VPHONE（手机 VBUS）</th></tr>
+<tr><td>输出高</td><td>导通</td><td>被拉低</td><td>导通</td><td class="ok">得电</td></tr>
+<tr><td>浮空输入（AF_INPUT）</td><td>截止（R11 下拉）</td><td>被 R10 拉到 5V_IN</td><td>截止</td><td class="bad">断电</td></tr>
+</table>
+
+<p><b>执行时序</b></p>
+<pre>main()
+ └─ main.c:57           GPIO_SetBits(GPIOB, Pin_5)        <span class="c">// PB5 高 → 手机得电</span>
+ └─ main.c:298          Phone_Control_Init()
+     └─ phone_control.c:163  Mic_Hum_Init()
+         └─ mic_hum.c:491    Hal_GPIO_Init(PB5, AF_INPUT) <span class="c">// ← PB5 变浮空 → 手机关电</span>
+</pre>
+
+<div class="danger"><b>结论</b>
+在 <code>TEST_MODE = 0</code>（正式吹气模式）下，<strong><code>Mic_Hum_Init()</code> 执行之后，给手机供电的 Q2 会被关断</strong>。
+这不影响 <code>TEST_MODE = 5</code>（当前模式），因为那条路径<strong>不调用 <code>Mic_Hum_Init</code></strong>，PB5 保持输出高。
+<b>推测这可能正是"想跑吹气模式却换来手机掉线/反复重连"这类现象的隐藏原因之一。</b>
+具体现象取决于手机是否自带电池、以及 <code>VPHONE</code> 断开时 Android 是否立即认为 USB 拔出。<mark>本条必须实测确认（见第 8 章第 1 项）。</mark></div>
+
+<h3>5.2 <span class="tag t-bug">缺陷</span>Config.h 的整个 I2S 段在 V3 板上不成立</h3>
+<p>把 <code>Config.h:19-43</code> 声明的引脚逐个丢进网表核对：</p>
+<table>
+<tr><th style="width:90px">引脚</th><th style="width:200px">Config.h 声明</th><th style="width:190px">原理图实际</th><th>结论</th></tr>
+<tr><td><code>PB12</code></td><td>I2S2_WS</td><td>U15.51，<b>net 为空</b></td><td class="bad">悬空</td></tr>
+<tr><td><code>PB13</code></td><td>I2S2_CK</td><td>U15.52，<b>net 为空</b></td><td class="bad">悬空</td></tr>
+<tr><td><code>PB15</code></td><td>I2S2_SD</td><td>U15.54 → <b>U11.5</b>（HC-05 模块）</td><td class="bad">接到蓝牙 STATE 脚</td></tr>
+<tr><td><code>PA15</code></td><td>I2S3_WS</td><td>U15.77，<b>net 为空</b></td><td class="bad">悬空</td></tr>
+<tr><td><code>PB3</code></td><td>I2S3_CK</td><td>U15.89，<b>net 为空</b></td><td class="bad">悬空</td></tr>
+<tr><td><code>PB5</code></td><td>I2S3_SD</td><td><b>PWR_CTRL</b>（见 5.1）</td><td class="bad">电源控制</td></tr>
+</table>
+<p>也就是说：<mark>这份 <code>电路.txt</code> 对应的板子上没有 I2S 麦克风的接线</mark>，而 <code>Config.h</code> 却把它标为"板无关"并默认启用 <code>BOARD_V3</code>。</p>
+<div class="warn"><b>两种可能，需要你确认哪一种</b>
+<ol style="margin:4px 0">
+<li><b>电路.txt 是较新的 V3 改版</b>，麦克风被移除了（改用 HC-05 语音模块？），但 <code>Config.h</code> 还留着 V1 时代的 I2S 段 → <b>配置过期</b>。</li>
+<li><b>电路.txt 导出不完整 / 不是我看到的那个板子</b> → 那 5.1 的 PB5 冲突也需要重新核对。</li>
+</ol>
+无论哪种，都说明<strong>代码里的"板级配置"和实物之间缺少一道核对机制</strong>。</div>
+
+<h3>5.3 <span class="tag t-smell">异味</span>板上一半器件在 Config.h 里没有名字</h3>
+<p>从网表里提取出的、有明确角色的器件，逐项比对 <code>Config.h</code>：</p>
+<table>
+<tr><th style="width:170px">器件</th><th style="width:210px">原理图连接</th><th>Config.h 是否表达</th></tr>
+<tr><td><code>U10</code> ESP8266 WiFi</td><td><code>E_TXD0/E_RXD0</code> ↔ U4 模拟开关 ↔ <code>CH32_TX1/RX1</code> 或 <code>CH32_TX6/RX6</code>；另有 E_EN/E_RST/E_GPIO0/E_GPIO15</td><td class="bad">完全没有</td></tr>
+<tr><td><code>U11</code> ATK-HC05 蓝牙</td><td><code>CH32_TX3/RX3</code>（USART3）+ <code>PB15</code>(STATE) + <code>PB14</code>(KEY)</td><td class="bad">完全没有（且 PB15 还被误定义为 I2S2_SD）</td></tr>
+<tr><td><code>U2</code> CH340 USB 串口</td><td><code>CH340_TX/RX</code> ↔ U4 ↔ <code>CH32_TX1/RX1</code></td><td class="bad">完全没有</td></tr>
+<tr><td><code>U1/U4/U7</code> 模拟开关</td><td>控制脚 <code>CTRL0</code> 由 <b>SW3 拨动开关</b>驱动，<code>CTRL1</code> 由 SW2 驱动</td><td class="bad">完全没有 —— <mark>软件看不到开关状态</mark></td></tr>
+<tr><td><code>PWR_CTRL</code></td><td>PB5 → 控制 VPHONE / 5V 两路电源</td><td class="bad">没有（还被 I2S3_SD 占用）</td></tr>
+<tr><td>SD 卡检测 <code>CD</code></td><td>CARD1.9 → <b>PC6</b></td><td class="bad">没有（更新记录里写的是 PD0）</td></tr>
+<tr><td>LED</td><td><code>PB8</code> → R52</td><td class="bad">没有</td></tr>
+<tr><td><code>U9</code> ADS1115</td><td>SCL=U15.47(PB10)、SDA=U15.48(PB11)、ALERT=U15.46(PE15)、AIN2/AIN3=摇杆</td><td class="ok">有，且与网表一致</td></tr>
+<tr><td><code>U17</code> 摇杆</td><td>AIN2/AIN3 + <code>S2 → KEY</code>(U15.45/PE14)</td><td class="ok">有，且与网表一致</td></tr>
+<tr><td>两路压差传感器</td><td><code>U5</code>/<code>U13</code> → 运放 <code>U6</code>/<code>U14</code> → 分两路：<code>R26→AIN1</code>、<code>R40→AIN0</code>；<code>R23→ADC8</code>、<code>R39→ADC9</code></td><td class="mid">只列了片内 ADC 通道号 8/9，<b>没说这两路和 ADS1115 的 AIN0/AIN1 是同一信号</b></td></tr>
+</table>
+
+<div class="warn"><b>最需要注意的是模拟开关 + 拨动开关这一层</b>
+<code>CTRL0</code> 由 <b>SW3（机械拨动开关）</b>直接驱动，不是 GPIO。
+这意味着：<strong>固件无法知道当前串口是连到 CH340 还是 ESP8266</strong>。
+任何"通过串口和 ESP8266 通信"的功能，都必须在文档里写明"先把 SW3 拨到 XX 位置"，
+否则会出现"代码没问题但收不到数据"这类极难排查的故障。</div>
+
+<h3>5.4 <span class="tag t-smell">异味</span>两路压差传感器读同一信号，Config.h 没表达取舍</h3>
+<p>网表里：传感器 → 运放 → 同时送 <code>ADS1115</code>（AIN0/AIN1，16 位）和 MCU 片内 <code>ADC8/ADC9</code>（12 位，即 PB0/PB1）。</p>
+<p><code>Config.h:84-85</code> 只定义了片内通道号：</p>
+<pre>#define PRESSURE_ADC1_CH   8
+#define PRESSURE_ADC2_CH   9
+</pre>
+<p>没有任何地方说明"这两路信号同时也接到了 ADS1115 的 AIN0/AIN1"，也没有说明<strong>哪一路是权威读数</strong>。更新记录里 ADS1115 的注释是"AIN0=压差传感器2 AIN1=压差传感器1"，而 Config.h 的注释顺序相反（<code>传感器1→ADC8</code>、<code>传感器2→ADC9</code>）——<mark>两处命名不一致</mark>。</p>
+
+<h3>5.5 <span class="tag t-smell">异味</span>编译期模式 + 魔法数字，且模式代码散在 main.c</h3>
+<pre><span class="c">// mode.h 全文（核心部分）</span>
+#define TEST_MODE           5
+<span class="c">/* 0=正常运行 1=SDIO测试 2=U盘 3=FAT读 4=USBHS枚举调试 5=HID键鼠 */</span>
+</pre>
+<p>问题不在"用宏"，而在：</p>
+<ul>
+<li><code>0</code> 是"正式功能"，却排在最后，且用 <code>0</code> 表示"正常"违反直觉（其他都是 1~5 的序号）。</li>
+<li>宏值被用在 <strong>5 个文件</strong>里做条件编译（<code>main.c</code>、<code>usb_desc.c</code>、<code>ch32v30x_usbfs_device.c</code>、<code>usbhs_dev.c</code>…），<b>没有任何地方列出"这个宏会让哪些文件走哪条分支"</b>。加一个模式需要改多处。</li>
+<li>正式模式的实现（<code>Phone_Control_*</code>）反而是最干净的一支，其它 5 个模式全是试验代码，却和正式代码共享一个宏命名空间。</li>
+</ul>
+
+<h3>5.6 <span class="tag t-smell">异味</span>文档与代码/实物不同步</h3>
+<table>
+<tr><th style="width:250px">文档说法</th><th style="width:250px">实际</th><th>来源</th></tr>
+<tr><td>"SDIO 引脚 PD0(CD检测)"</td><td>网表里卡座 CD → <b>PC6</b>；而 <code>sdio_sd.c</code> 只配了 PC8–PC12 + PD2，<b>没有 CD</b></td><td>更新记录一百零八 vs 电路.txt</td></tr>
+<tr><td>"板载 LED"（我在上一轮导读里也这么写过）</td><td>PB5 是 PWR_CTRL，PB8 才是 LED</td><td>见第 9 章更正</td></tr>
+<tr><td><code>Config.h</code> 注释"压差传感器1→PB0/ADC8"</td><td>更新记录写"传感器1→运放→PB0/ADC8"一致，但 ADS1115 侧编号相反</td><td>两处注释</td></tr>
+</table>
+<p>这不是"文档写得不好"，而是<strong>缺少单一的板级定义源</strong>：引脚同时存在于 <code>Config.h</code>、更新记录 txt、原理图 JSON、以及各类 <code>.c</code> 注释里，四份都能独立漂移。</p>
+
+<h3>5.7 <span class="tag t-smell">异味</span>业务层与硬件耦合，缺少可测试边界</h3>
+<p><code>phone_control.c:43-53</code> 直接操作 USART 寄存器：</p>
+<pre>static void USART1_RX_Init(void) {
+    GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_10;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_Init(GPIOA, &amp;GPIO_InitStructure);
+    USART1-&gt;CTLR1 |= USART_Mode_Rx;      <span class="c">// 绕过外设库直接改寄存器</span>
+}
+</pre>
+<p>业务层写"某个具体 UART 的某个具体引脚"，意味着<strong>换板子/换串口就要改业务代码</strong>。</p>
+<p>更深的问题是：<code>Mic_Hum_Poll</code>、<code>Phone_Control_Poll</code>、<code>AOA_Host_*</code> 全都既做逻辑又碰硬件，<strong>没有任何一个函数可以在 PC 上跑单元测试</strong>。吹气状态机（<code>mic_process</code>，170 行）逻辑最复杂、最需要测试，却和 DMA 中断绑死。</p>
+
+<h3>5.8 <span class="tag t-smell">异味</span>缺少故障可观测性</h3>
+<p>V307 的调试输出全是 <code>printf</code> 无条件输出。当用户在现场说"吹气不灵"时，能拿到的信息只有串口日志——而<mark>串口是 2 Mbps 且与 CH340 共享，一旦 SW3 拨到 ESP8266 侧，串口就没了</mark>。</p>
+<p>对比之下，H417 的 <code>Serial_CtrlBlock</code> 里有 <code>TxDropCount</code>——这是一个"日志系统自己丢了多少包"的计数，属于可观测性设计。</p>
+<p>V307 侧目前<strong>没有任何计数器</strong>：不说丢了几个命令、不说 AOA 重连了几次、不说吹气误判了多少次。OLED 也只在 <code>TEST_MODE=2</code> 才显示调试状态。</p>
+
+<h2 id="c6"><span class="n">6</span>H417 侧同样存在的问题</h2>
+
+<p>为了公平——H417 那份也不是"标准答案"。以下问题同样成立：</p>
+
+<h3>6.1 <span class="tag t-smell">异味</span>Config.h 用 <code>#ifdef __SERIAL_H</code> 做隐式依赖</h3>
+<pre><span class="c">// Config.h:21 和 :82 两处</span>
+#ifdef __SERIAL_H
+    ... 全部串口宏 ...
+#endif /* __SERIAL_H */
+</pre>
+<p>设计意图：只有在包含了 <code>Serial.h</code> 之后，串口宏才可见，避免污染其它翻译单元。</p>
+<p>但 <code>__SERIAL_H</code> 是 <code>Serial.h</code> 的 include guard —— <mark>这是在依赖 include 顺序</mark>。<code>Serial.c:1-2</code> 恰好是 <code>#include "Serial.h"</code> 再 <code>#include "Config.h"</code>，所以能工作；换个顺序或换个文件就静默失效。</p>
+<p>而且这制造了隐藏的循环依赖：<code>Serial.h</code> 不包含 <code>Config.h</code>，<code>Config.h</code> 又需要 <code>Serial.h</code> 先被包含 —— 只能靠约定维持。</p>
+
+<h3>6.2 <span class="tag t-smell">异味</span>BOARD_V1 / V2 两个块重复度过高</h3>
+<p><code>Config.h:19-73</code>（V1）与 <code>:80-132</code>（V2）中，串口的 <code>DMA_INSTANCE</code>、<code>TX/RX_DMA_CHANNEL</code>、<code>DMAMUX_CHANNEL</code>、<code>DMA_REQUEST</code>、<code>TC/TE_FLAG</code>、<code>IRQn</code>、<code>BUF_SIZE</code>、<code>RING_SIZE</code> <strong>完全相同</strong>（各 25 行 × 2 = 50 行纯重复），只有 4 个引脚不同。应抽出公共段。</p>
+
+<h3>6.3 <span class="tag t-bug">缺陷</span>Serial.c 的中断开关不保存原状态</h3>
+<pre><span class="c">// Serial.c:299-307</span>
+    __disable_irq();
+    uint16_t used = Serial_TxUsedRaw(p);
+    uint16_t free_bytes = (uint16_t)(p-&gt;TxRingSize - used - 1);
+    if (len &gt; free_bytes) {
+        p-&gt;TxDropCount++;
+        __enable_irq();            <span class="c">// ← 无条件开中断</span>
+        return 0;
+    }
+    ...
+    __enable_irq();                <span class="c">// ← 无条件开中断</span>
+</pre>
+<p><code>__disable_irq()</code> / <code>__enable_irq()</code> 是"设置/清除 mstatus.MIE"的裸操作，<strong>不保存进入前的状态</strong>。若在 ISR 上下文里调用 <code>Serial_SendArray_DMA</code>，函数返回时会<strong>把中断意外打开</strong>。</p>
+<div class="note"><b>严重性评估：理论风险，当前实际影响低</b>
+我 grep 了 H417 全部代码：<code>Serial_Dbg_Printf</code> / <code>Serial_SendArray_DMA</code> 目前<strong>只在非中断上下文被调用</strong>（<code>Mic_Hum_Poll</code>、初始化、测试循环）。
+所以现在不会出问题。但这是颗定时炸弹——只要有人在某个 <code>_IRQHandler</code> 里加一行 <code>Serial_Dbg_Printf</code> 就会中招。
+正确写法是 <code>uint32_t saved = __get_MSTATUS(); ... __set_MSTATUS(saved);</code> 或用一个 "critical section" 嵌套计数器。</div>
+
+<h3>6.4 <span class="tag t-smell">异味</span>hardware.c 的模式分支里 <code>while(1)</code> 不返回</h3>
+<pre><span class="c">// hardware.c:14-56</span>
+void Hardware(void) {
+#if (SYSTEM_MODE == MODE_GPIO_TOGGLE)
+    { ... while (1) { 翻转 GPIO } }        <span class="c">// 永不返回</span>
+#elif (SYSTEM_MODE == MODE_PHONE_CONTROL)
+    Phone_Control_Init();
+    while (1) { Phone_Control_Poll(); }    <span class="c">// 永不返回</span>
+#elif (SYSTEM_MODE == MODE_DUAL_MIC_TEST)
+    Mic_Hum_TestLoop();                    <span class="c">// 阻塞死循环</span>
+#endif
+}
+</pre>
+<p>名为 <code>Hardware()</code> 的"硬件初始化入口"，实际上承担了"主循环"的职责。名字与行为不符，且函数永远不返回，无法被组合。</p>
+
+<h3>6.5 <span class="tag t-smell">异味</span>双核条件编译让宏满天飞</h3>
+<p><code>hardware.c:8-12</code>、<code>:16</code>、<code>:52</code>，<code>Serial.c</code>，以及 <code>Config.h</code> 的板型块，都参与 <code>Core_V3F</code>/<code>Core_V5F</code> 判定。加上 <code>BOARD_V1/V2</code>、<code>SYSTEM_MODE</code>，H417 侧的配置空间有 <b>2(核) × 2(板) × 3(模式) = 12 种组合</b>，而代码里没有任何地方声明"哪些组合是有效的"。</p>
+
+<h3>6.6 <span class="tag t-smell">异味</span>实例抽象被业务层绕过</h3>
+<p>见 2.4：<code>mic_hum.c:389-492</code> 里写死了 <code>SPI2</code>、<code>SPI3</code>、<code>DMA2_Channel1</code>、<code>DMA2_Channel2</code>、<code>DMA_MuxChannel9/10</code>、请求号 <code>66</code>/<code>68</code>、以及手工写的 <code>SPI2-&gt;I2SPR = 0x00C3</code>。</p>
+<p>特别是 <code>I2SPR = 0x00C3</code> 这个魔数（<code>mic_hum.c:458,462</code>）：它直接覆盖 <code>I2S_Init()</code> 算出的分频值，注释里没有任何推导过程。</p>
+
+<h2 id="c7"><span class="n">7</span>改进建议</h2>
+
+<h3>P0 · 先做（涉及正确性，成本低）</h3>
+<table>
+<tr><th style="width:200px">动作</th><th style="width:300px">做法</th><th>收益 / 成本 / 风险</th></tr>
+<tr><td><b>核对并修正 PB5 归属</b></td><td>实测 <code>TEST_MODE=0</code> 下 <code>VPHONE</code> 电压（Q2 漏极 / C3 / D2 附近）。确认后：<br>方案 A —— 把 <code>I2S3_SD</code> 迁到别的脚（V3 板上 PB12/PB13/PA15/PB3 都空着）<br>方案 B —— 若 V3 板确实没有麦克风，删掉 <code>I2S2/I2S3</code> 整段</td><td>修掉一个可能让手机掉电的隐患。<br>成本：半天（含实测）。<br>风险：方案 A 需要重新接线，方案 B 会让 <code>TEST_MODE=0</code> 无法编译——需同步处理 <code>mic_hum.c</code> 的编译条件。</td></tr>
+<tr><td><b>补全 <code>Config.h</code> 缺失的板级定义</b></td><td>加上：<code>PWR_CTRL</code>(PB5)、<code>LED</code>(PB8)、<code>SD_CD</code>(PC6)、<code>HC05</code> USART3(P D8/PD9)+PB14/PB15、<code>ESP8266</code> 串口与使能脚、以及<b>注释说明 CTRL0/CTRL1 由机械开关 SW2/SW3 控制、软件不可见</b></td><td>把"板子真相"收进一个文件。<br>成本：2 小时。<br>风险：无（纯新增）。</td></tr>
+<tr><td><b>给 <code>Hal_GPIO_Init</code> 加断言</b></td><td><code>if (port_idx &gt;= NUM_PORTS || pin &gt; 15) return;</code>（或 <code>assert_param</code>），并把 <code>pin_mask</code> 改成 <code>uint32_t</code> 再显式取 <code>&amp; 0xFFFF</code></td><td>消灭静默失败。<br>成本：10 分钟。<br>风险：无。</td></tr>
+<tr><td><b>修正速度映射</b></td><td>V307 只有 3 档，改为：<code>LOW→2MHz</code>、<code>MEDIUM→10MHz</code>、<code>HIGH/VERY_HIGH→50MHz</code>；并在头文件注释里写明"V307 无 Very_High 档，HIGH 与 VERY_HIGH 等价"</td><td>消除语义倒挂。<br>成本：10 分钟。<br>风险：<b>需检查现有调用</b>——目前全部用 HIGH/VERY_HIGH，改后行为不变。</td></tr>
+<tr><td><b>修正 EXTI 注册顺序 + 加 volatile</b></td><td><code>ClearPending → EXTI_Init → 写回调 → NVIC_EnableIRQ</code>；回调数组加 <code>volatile</code>；<code>EXTI0..4</code> 补 <code>pending</code> 检查</td><td>消除一个真实存在的窗口期。<br>成本：30 分钟。<br>风险：无。</td></tr>
+</table>
+
+<h3>P1 · 再做（结构重排，收益最大）</h3>
+
+<div class="grid">
+<div class="tile"><div class="t">① 抽 <code>hal_clock.h/c</code></div><div class="d">统一 <code>Hal_Clock_Enable(HAL_CLK_GPIOB)</code> / <code>_Disable</code>，用一个查找表覆盖 GPIOx / SPIx / USARTx / DMAx / AFIO / USBFS / SDIO。<br>顺便把 <code>AFIO->PCFR1</code> 的 JTAG 释放封成 <code>Hal_AFIO_ReleaseJTAG()</code>。</div><div class="p">消除"忘记开时钟"这一整类 bug</div></div>
+<div class="tile"><div class="t">② 抽 <code>hal_serial.h/c</code></div><div class="d">直接把 H417 的 <code>Serial.c</code> 移植过来（去掉 DMAMUX，改成 V307 的通道/请求方式）。目标：<code>Serial_Dbg_Printf</code> 非阻塞、可选 <code>LOG_LEVEL</code> 编译开关。</div><div class="p">去掉主循环被 printf 阻塞的时延抖动</div></div>
+<div class="tile"><div class="t">③ 补 <code>hardware.c/h</code></div><div class="d">仿 H417：把 6 个模式的实现从 <code>main.c</code> 搬出去，各成 <code>mode_udisk.c</code> / <code>mode_fatfs.c</code> / <code>mode_hid_mouse.c</code>，<code>main.c</code> 只留 <code>Hardware()</code> 一行分发。</div><div class="p">main.c 从 305 行回到 60 行</div></div>
+<div class="tile"><div class="t">④ 抽 <code>hal_gpio_af</code> 能力声明</div><div class="d">V307 无法选 AF，那就<strong>把这件事写进接口</strong>：删掉 <code>af_num</code> 参数，或改名 <code>Hal_GPIO_InitAF(pin, mode, speed)</code> 并明确"AF 由引脚默认复用决定"。<br>同时删掉 <code>Config.h</code> 里的 <code>I2Sx_GPIO_AF 0</code>。</div><div class="p">宁可接口不完整，也不要接口说谎</div></div>
+</div>
+
+<h3>P2 · 工程化（长期）</h3>
+<ul>
+<li><b>拆 <code>mode.h</code> 为"功能开关"而非"数字模式"</b>：<code>FEATURE_BLOW_CONTROL</code> / <code>FEATURE_UDISK</code> / <code>FEATURE_HID_MOUSE</code> 三个独立布尔，可组合，且每个 <code>.c</code> 文件只判断自己关心那个。<br>配合 <code>subdir.mk</code> 的问题——在 MounRiver 之外维护一个 <code>Makefile.features</code>，用 <code>ifeq</code> 控制加入哪些 <code>.o</code>，就<strong>不用再靠改扩展名排除文件</strong>。</li>
+<li><b>建立"板级定义唯一真源"</b>：写一个脚本从 <code>电路.txt</code>（JSON）自动生成/校验 <code>Config.h</code>。本次分析里的网表比对（第 5 章那几张表）完全可以脚本化，每次改板子跑一次。</li>
+<li><b>给 <code>mic_process</code> 加单元测试</b>：把状态机从 <code>mic_hum.c</code> 里剥出来，输入序列 <code>{"energy 序列 + 期望命令序列"}</code>，用宿主 GCC 编译跑。这是全项目最复杂、最值得测试的 170 行。</li>
+<li><b>加运行时计数器</b>：命令队列丢弃数、AOA 重连次数、I2S 重启次数、采集模式超时次数。<code>TEST_MODE=0</code> 下也用 OLED 显示一行。</li>
+<li><b>文档单点化</b>：把 <code>更新记录.txt</code> 里的引脚/协议描述改为引用 <code>Config.h</code> 的行号或宏名，而不是重抄一遍。</li>
+</ul>
+
+<h2 id="c8"><span class="n">8</span>需你实测复核的清单</h2>
+
+<p>以下几条是我<strong>从代码与网表推导出的结论</strong>，静态分析无法 100% 确定。<span class="tag t-guess">推断</span></p>
+
+<table>
+<tr><th style="width:40px">#</th><th style="width:250px">要验证的结论</th><th style="width:230px">验证方法</th><th>影响</th></tr>
+<tr><td>1</td><td><code>TEST_MODE=0</code> 下 <code>Mic_Hum_Init()</code> 会切断手机 VBUS</td><td>万用表量 <code>VPHONE</code>（Q2 漏极 / C3 / D2 附近）：<br>① 上电瞬间 → 记电压<br>② 跑到 <code>Mic_Hum_Init</code> 之后 → 再记<br>或直接看手机 USB 是否断开</td><td>高：若成立，是吹气模式无法稳定工作的根因之一</td></tr>
+<tr><td>2</td><td>V3 板是否真的没有 I2S 麦克风</td><td>查嘉立创 EDA 里 <code>电路.txt</code> 是否为最新版；万用表查 PB12/PB13/PA15/PB3 对地是否悬空</td><td>高：决定 <code>Config.h</code> I2S 段是删还是改</td></tr>
+<tr><td>3</td><td>V307 的 I2S3 在 AF_PP 模式下是否真能复用到 PA15/PB3</td><td>示波器量 PB13 / PB3 的 SCK 波形（16 kHz × 64 = 1.024 MHz）</td><td>中：验证 3.1 的推断</td></tr>
+<tr><td>4</td><td>SD 卡检测脚到底是 PC6 还是 PD0</td><td>查 <code>sdio_sd.c</code> 是否用了 CD；万用表查 CARD1.9 走线</td><td>中：决定热插拔功能</td></tr>
+<tr><td>5</td><td>压力传感器读数应以 ADS1115 为准还是片内 ADC 为准</td><td>两路同时读，比对线性度与噪声</td><td>中：决定后续代码取舍</td></tr>
+<tr><td>6</td><td>SW2/SW3 两个拨动开关的位置约定</td><td>实测：SW3 拨到两侧时，CH32_TX1 分别通到 CH340 还是 ESP8266</td><td>中：必须写进用户手册</td></tr>
+</table>
+
+<h2 id="c9"><span class="n">9</span>更正：上一轮我说错的一处</h2>
+
+<div class="danger"><b>更正内容</b>
+上一轮交付的《VOICE 代码导读手册》第 1 章我写了：<br>
+<span style="opacity:.75">"板载 LED 在 PB5，不是 PB0。<code>main.c:53-57</code> 配的是 PB5。"</span><br>
+<b>这是错的。</b><code>main.c</code> 在 <code>:50-57</code> 确实操作 PB5，但既没有注释说明是 LED，我也没有核对原理图就下了结论。<br>
+核对网表后：<b>PB5 = PWR_CTRL</b>（经 R12 → Q3 → Q2 控制手机供电），<b>PB8 经 R52 才是 LED</b>。<br>
+读者请注意以本文档为准。</div>
+
+<p>这个错误本身也是个教训：<code>main.c</code> 里那 5 行代码<strong>没有任何注释</strong>，而它控制的是"要不要给手机供电"这种关键行为。按 P0 建议把它改成 <code>Hal_GPIO_Set(PWR_CTRL_PIN_ENC)</code> 并加注释，读代码的人就不会再猜错。</p>
+
+</main>
+
+<footer>
+本文档为只读分析，未修改 <code>VOICE_V307/</code>、<code>EXAM/</code> 或 <code>voice_control/</code> 中的任何文件。<br>
+代码引用以当前工作区实际文件为准（含尚未提交的 HID / ADS1115 / 摇杆改动）；原理图引用来自 <code>电路.txt</code>（嘉立创 EDA 导出 JSON，169 元件 / 86 条具名网络）。<br>
+凡标注 <span class="tag t-guess">推断</span> 的结论均需实测确认，清单见第 8 章。
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V3 压力传感架构改造方案</title>
+<style>
+:root{
+  --ink:#24262b; --ink2:#5a5f6b; --ink3:#8b909c;
+  --line:#e2e5ea; --bg:#f6f7f9; --card:#ffffff;
+  --blue:#2563eb; --blue-bg:#eef4ff; --blue-ln:#c7dbff;
+  --teal:#0f766e; --teal-bg:#eafaf6; --teal-ln:#b6e7dc;
+  --amber:#b45309; --amber-bg:#fff8ec; --amber-ln:#f6ddb0;
+  --red:#b91c1c; --red-bg:#fef2f2; --red-ln:#f7cccc;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.78 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+#toc{position:fixed;top:0;left:0;width:276px;height:100vh;overflow-y:auto;
+  background:var(--card);border-right:1px solid var(--line);padding:22px 16px 40px;}
+#toc h1{font-size:15px;margin:0 0 4px;font-weight:600}
+#toc .sub{font-size:12px;color:var(--ink3);margin-bottom:16px;line-height:1.55}
+#toc a{display:block;color:var(--ink2);text-decoration:none;font-size:13px;
+  padding:5px 9px;border-radius:6px;margin-bottom:1px}
+#toc a:hover{background:var(--blue-bg);color:var(--blue)}
+#toc .grp{font-size:11px;color:var(--ink3);margin:14px 0 5px;padding-left:9px;letter-spacing:.6px}
+main{margin-left:276px;padding:34px 40px 90px;max-width:1080px}
+h2{font-size:21px;margin:48px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line);font-weight:600}
+h2 .n{display:inline-block;background:var(--blue);color:#fff;font-size:13px;
+  border-radius:6px;padding:1px 8px;margin-right:9px;vertical-align:2px}
+h3{font-size:16px;margin:28px 0 8px;font-weight:600}
+h4{font-size:14px;margin:18px 0 6px;font-weight:600;color:var(--ink2)}
+p{margin:8px 0}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:3px 0}
+code{font-family:var(--mono);font-size:12.5px;background:#eef0f4;
+  padding:1px 5px;border-radius:4px;color:#1f3a5f}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;background:#f2f4f7;
+  border-left:3px solid var(--blue);border-radius:0 8px 8px 0;
+  padding:12px 15px;overflow-x:auto;margin:10px 0;color:#1f2937}
+pre .c{color:#6b7280}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#f0f2f6;font-weight:600;font-size:13px}
+td code{font-size:12px}
+.note,.warn,.why,.danger{border-radius:8px;padding:11px 15px;margin:12px 0;font-size:13.5px;border:1px solid}
+.note{background:var(--blue-bg);border-color:var(--blue-ln)}
+.warn{background:var(--amber-bg);border-color:var(--amber-ln)}
+.why{background:var(--teal-bg);border-color:var(--teal-ln)}
+.danger{background:var(--red-bg);border-color:var(--red-ln)}
+.note b,.warn b,.why b,.danger b{display:block;margin-bottom:3px;font-size:12px;letter-spacing:.5px}
+.note b{color:var(--blue)} .warn b{color:var(--amber)}
+.why b{color:var(--teal)} .danger b{color:var(--red)}
+.lead{font-size:15px;color:var(--ink2);background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:16px 20px;margin:16px 0}
+.tag{display:inline-block;font-size:11px;letter-spacing:.4px;border-radius:4px;
+  padding:1px 6px;margin-right:6px;vertical-align:2px;font-weight:600}
+.t-new{background:#dcfce7;color:#166534}
+.t-chg{background:#dbeafe;color:#1e40af}
+.t-del{background:#fde8e8;color:#991b1b}
+.t-keep{background:#f1f5f9;color:#475569}
+mark{background:#fff3bf;padding:0 3px;border-radius:3px}
+.ok{color:#166534;font-weight:600}
+.bad{color:#991b1b;font-weight:600}
+.mid{color:#92400e;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px}
+.tile .t{font-weight:600;font-size:13.5px;margin-bottom:4px}
+.tile .d{font-size:12.5px;color:var(--ink2);line-height:1.65}
+.tile .p{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:6px}
+.dec{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:14px 18px;margin:12px 0;border-left:4px solid var(--teal)}
+.dec .k{font-size:12px;color:var(--teal);letter-spacing:.6px;font-weight:600}
+.dec .v{font-size:15px;font-weight:600;margin:2px 0 4px}
+.dec .r{font-size:13px;color:var(--ink2)}
+footer{margin-left:276px;padding:0 40px 60px;color:var(--ink3);font-size:12.5px;max-width:1080px}
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h1>V3 压力传感架构改造方案</h1>
+  <div class="sub">用两路压差传感器（吸/吹）替代双 INMP441<br>面向 V3 板的整体架构与迁移路径</div>
+
+  <div class="grp">决策与判断</div>
+  <a href="#c0">0 · 已确认的三项决策</a>
+  <a href="#c1">1 · 这次换传感器的本质收益</a>
+  <a href="#c2">2 · 硬件侧的硬约束</a>
+
+  <div class="grp">目标架构</div>
+  <a href="#c3">3 · 分层与模块划分</a>
+  <a href="#c4">4 · 采样路径设计</a>
+  <a href="#c5">5 · 零点校准与滤波</a>
+  <a href="#c6">6 · 双极性手势状态机</a>
+
+  <div class="grp">接口与协议</div>
+  <a href="#c7">7 · 协议扩展</a>
+  <a href="#c8">8 · 命令映射建议</a>
+  <a href="#c9">9 · 容易被忽略的节拍传染</a>
+
+  <div class="grp">落地</div>
+  <a href="#c10">10 · 迁移步骤</a>
+  <a href="#c11">11 · 风险与验证清单</a>
+  <a href="#c12">12 · 明确不做什么</a>
+</nav>
+
+<main>
+
+<h2 id="c0"><span class="n">0</span>已确认的三项决策</h2>
+
+<div class="dec">
+  <div class="k">决策一 · 传感器角色</div>
+  <div class="v">两个独立吸吹口</div>
+  <div class="r">完整保留原「A/B 双麦」的双通道语义与跨通道组合。状态机结构改动最小 —— <code>mic_t</code> 换成 <code>gesture_t</code>，逻辑骨架照搬。</div>
+</div>
+<div class="dec">
+  <div class="k">决策二 · 采样路径</div>
+  <div class="v">ADS1115 为权威路径</div>
+  <div class="r">量程由 PGA 决定，不受 <code>VREF+ = 2.495V</code> 限制；16 位。代价是必须先改驱动 —— 现有实现是单次转换 + <code>Delay_Ms(10)</code> 阻塞式，实测每通道 11.4ms。</div>
+</div>
+<div class="dec">
+  <div class="k">决策三 · 手势空间</div>
+  <div class="v">吸 / 吹 各一套手势</div>
+  <div class="r">命令空间从 10 个扩到 18~22 个。可以直接删掉现有「音量模式」这个妥协 —— 它本来就是因为命令不够才让长吹兼职音量。</div>
+</div>
+
+<h2 id="c1"><span class="n">1</span>这次换传感器的本质收益</h2>
+
+<div class="lead">
+旧架构：<code>INMP441 → 24bit PCM → 绝对值均值(energy) → energy &gt; 2500 → blowing 布尔量 → 5 状态机</code><br>
+新架构：<code>GZP6897A → 模拟电压 → 带符号压力 P → 双阈值 zone → 双极性状态机</code><br>
+<br>
+<strong>最重要的一点：麦克风分不清「吸」和「吹」（能量都是正的），压力传感器天生带符号。</strong>
+这一条直接让命令空间翻倍，而且消掉了两个历史包袱。
+</div>
+
+<table>
+<tr><th style="width:150px">对比项</th><th style="width:290px">旧（双麦克风）</th><th>新（双压力传感器）</th></tr>
+<tr><td>被测量</td><td>声压级（间接、受环境噪声影响）</td><td>口部气压（直接、物理量）</td></tr>
+<tr><td>方向信息</td><td class="bad">无。吸和吹能量都是正的</td><td class="ok">有符号。正=吹，负=吸</td></tr>
+<tr><td>命令空间</td><td>2 通道 × 4 手势 + 2 跨麦 = <b>10</b></td><td>2 通道 × 8 手势 + 2 跨口 = <b>18</b>（可扩到 22）</td></tr>
+<tr><td>音量控制</td><td class="bad">需「音量模式」开关，长吹兼职</td><td class="ok">长吸直接专职音量，<code>g_volume_mode</code> 可删</td></tr>
+<tr><td>环境干扰</td><td>怕风噪、怕环境声、怕遮挡</td><td>密闭气路，与环境声无关</td></tr>
+<tr><td>采集链路</td><td>I2S + DMA 双缓冲 + 4 HalfWord 位置自动检测 + 全零看门狗</td><td class="ok">单条 I2C，无位置不确定性、无时序漂移问题</td></tr>
+<tr><td>阈值语义</td><td>绝对能量阈值（环境中性，一次调好）</td><td class="mid">零点相对偏移 <code>|P − P0|</code>，P0 会温漂，需运行时重校准</td></tr>
+<tr><td>故障恢复</td><td>有「全零检测 → I2S 重启」看门狗</td><td>需新设计（I2C NAK / 读数卡死 检测）</td></tr>
+</table>
+
+<div class="why"><b>可以整段删掉的旧复杂度</b>
+<code>Auto_Detect_Pos</code>（4 候选位置自动检测）、<code>I2S_Restart</code>（全零看门狗）、双缓冲 HT/TC 中断、<code>HW_PER_FRAME = 4</code> 的半字拆分逻辑、
+<code>g_volume_mode</code> 及其在下游的所有分支 —— <mark>这些全部是"麦克风特性"带来的附带复杂度，换传感器后一笔勾销</mark>。
+<code>mic_hum.c</code> 的 689 行里，估计只有 <code>mic_process</code> 的 170 行有迁移价值。</div>
+
+<h2 id="c2"><span class="n">2</span>硬件侧的硬约束</h2>
+
+<p>以下全部来自 <code>电路.txt</code> 网表核对，是选型和时序计算的输入。</p>
+
+<h3>2.1 信号链（实际走线）</h3>
+<pre>U5  GZP6897A  VOUT ─┬─ R26(0Ω) ──────────────── AIN1 ── ADS1115 (16bit)
+                    │
+                    └─ R22(0Ω) ─ LMV321B(跟随器) ─┬─ R23(22Ω) ─ ADC8 ── 片内ADC (12bit)
+                                                  └─ C31(100nF) ─ AGND
+
+U13 GZP6897A  VOUT ─┬─ R40(0Ω) ──────────────── AIN0 ── ADS1115
+                    │
+                    └─ R38(0Ω) ─ LMV321B(跟随器) ─┬─ R39(22Ω) ─ ADC9 ── 片内ADC
+                                                  └─ C45(100nF) ─ AGND
+</pre>
+
+<div class="note"><b>两条路的前端是不一样的，这点很关键</b>
+ADS1115 的 AIN0/AIN1 是 <strong>0Ω 直连传感器输出，没有缓冲</strong>；
+片内 ADC 走的是 <strong>跟随器 + 22Ω + 100nF</strong>（100nF 是给 SAR ADC 采样电容提供瞬时电荷的"电荷池"，不是抗混叠——22Ω 配 100nF 的转折频率有 72 kHz）。
+说明设计者把片内 ADC 那条路当成主路径认真做了调理。你选了 ADS1115 为主，那么<mark>建议把两路读数做一致性比对</mark>（见第 11 章风险 1）。</div>
+
+<h3>2.2 参考电压与量程</h3>
+<table>
+<tr><th style="width:190px">项目</th><th style="width:220px">值</th><th>影响</th></tr>
+<tr><td><code>VREF+</code>（U16 TL431BQDBZR + R46 470Ω + R47 2kΩ）</td><td><b>≈ 2.495 V</b></td><td class="bad">片内 ADC 只能测 0~2.5V，正负量程会不对称</td></tr>
+<tr><td>运放 <code>LMV321B-TR</code> 供电</td><td>3V3A（轨到轨）</td><td>跟随器输出可到 ~0~3.3V → <mark>超出 VREF+，片内 ADC 会削顶</mark></td></tr>
+<tr><td>ADS1115 PGA</td><td>可配 ±6.144 / 4.096 / 2.048 / 1.024 / 0.512 / 0.256 V</td><td class="ok">不受 VREF+ 限制 —— 这正是选它的理由</td></tr>
+<tr><td>ADS1115 供电 / 地</td><td>3V3A / AGND</td><td>与传感器、运放同一模拟域，好</td></tr>
+<tr><td>ADS1115 I2C 上拉 <code>R36/R37</code></td><td><b>2.2 kΩ</b> 上拉到 3V3A</td><td class="ok">强劲上拉，<b>支持 400 kHz 快速模式</b>（现在只跑 100 kHz）</td></tr>
+<tr><td>ADS1115 ALERT/RDY 上拉 <code>R35</code></td><td>5.1 kΩ → PE15</td><td>可用作数据就绪中断（本方案不用，见 4.3）</td></tr>
+</table>
+
+<h3>2.3 通道分配（ADS1115 只有 1 个 ADC + 4 路 MUX）</h3>
+<table>
+<tr><th style="width:110px">MUX 通道</th><th style="width:210px">接什么</th><th>轮询权重建议</th></tr>
+<tr><td><code>AIN0</code></td><td>U13 压力传感器（吸吹口 2）</td><td><b>高</b></td></tr>
+<tr><td><code>AIN1</code></td><td>U5 压力传感器（吸吹口 1）</td><td><b>高</b></td></tr>
+<tr><td><code>AIN2</code></td><td>U17 摇杆 X（经 0Ω）</td><td>中</td></tr>
+<tr><td><code>AIN3</code></td><td>U17 摇杆 Y（经 0Ω）</td><td>中</td></tr>
+</table>
+<p>传感器和摇杆<strong>必须共享</strong>这个 MUX —— 这是本次架构设计里最实际的约束，直接决定了采样调度器的形态。</p>
+
+<h3>2.4 顺带发现的两处配置过期</h3>
+<ul>
+<li><code>Config.h:46</code> 注释写 <code>OLED SSD1306 128x64</code>，实际板上是 <b>U12 = CH1115</b>。引脚完全兼容（SPI 4 线：PA5/PA6/PA7/PC4/PC5），驱动基本不用改，但初始化命令集若有差异需要确认。</li>
+<li>U12 的引脚命名是 <code>SDA/SCL</code> 而非 <code>MOSI/SCK</code>，容易误判成 I2C，实际是 SPI（有 CS/DC）。</li>
+</ul>
+
+<h2 id="c3"><span class="n">3</span>分层与模块划分</h2>
+
+<h3>3.1 现状 vs 目标</h3>
+<table>
+<tr><th style="width:80px">层</th><th style="width:300px">现状</th><th>目标</th></tr>
+<tr><td>L4 业务</td><td rowspan="4"><code>mic_hum.c</code> 一个文件 689 行<br>把「I2S 驱动 + DMA 中断 + 能量计算 + 位置检测 + 看门狗 + 状态机 + 命令映射」全部混在一起</td><td><code>phone_control.c</code> <span class="tag t-keep">微调</span> 只改 3 个调用点</td></tr>
+<tr><td>L3 语义</td><td><code>gesture.c/h</code> <span class="tag t-new">新增</span> 双极性手势状态机（纯逻辑，可 PC 单测）</td></tr>
+<tr><td>L2 信号</td><td><code>press.c/h</code> <span class="tag t-new">新增</span> 零点校准 + 滤波 + 双阈值 zone 判定</td></tr>
+<tr><td>L1 驱动</td><td><code>ads1115.c/h</code> <span class="tag t-chg">改造</span> + <code>adc_scan.c/h</code> <span class="tag t-new">新增</span> 非阻塞四通道轮询调度</td></tr>
+<tr><td>L2' 抽象</td><td><code>hal_gpio.c</code> / <code>Config.h/.c</code></td><td><code>hal_clock.c/h</code> <span class="tag t-new">新增</span> + <code>Config.h</code> <span class="tag t-chg">整改</span>（见 3.3）</td></tr>
+<tr><td>—</td><td><code>mic_hum.c/h</code> 689 行</td><td><span class="tag t-del">删除</span></td></tr>
+</table>
+
+<h3>3.2 六个文件的职责边界</h3>
+
+<div class="grid">
+<div class="tile"><div class="t">ads1115.c/h <span class="tag t-chg">改造</span></div><div class="d">只做寄存器级原子操作。<b>去掉 <code>Delay_Ms(10)</code></b>，拆成三个可组合的接口：<br><code>ADS1115_Config(ch, pga, dr)</code> 写配置并启动<br><code>ADS1115_IsDone()</code> 读 OS 位<br><code>ADS1115_ReadRaw(&amp;v)</code> 读转换值</div><div class="p">纯 I2C + 寄存器，无状态</div></div>
+<div class="tile"><div class="t">adc_scan.c/h <span class="tag t-new">新增</span></div><div class="d">非阻塞通道轮询调度器。持有一个通道序列数组，<br>每次 <code>AdcScan_Poll()</code> 检查当前转换是否完成，完成则读回、切下一通道、启动新转换，<b>未完成立刻返回</b>。<br>向上提供 <code>AdcScan_Get(ch, &amp;val, &amp;is_new)</code>。</div><div class="p">轮询序列可配置 → 压力权重可调</div></div>
+<div class="tile"><div class="t">press.c/h <span class="tag t-new">新增</span></div><div class="d">把原始 ADC 值变成「压力语义」：<br>① 开机零点校准<br>② 空闲期零点重校准（抗温漂）<br>③ 中值(3) + 一阶 IIR(α≈0.25) 滤波<br>④ 双阈值迟滞 → 输出 <code>zone</code>（IDLE/POS/NEG）与 <code>ΔP</code></div><div class="p">不碰寄存器，只处理数字</div></div>
+<div class="tile"><div class="t">gesture.c/h <span class="tag t-new">新增</span></div><div class="d">从 <code>mic_process</code> 迁移的双极性状态机。<br><b>纯逻辑、零硬件依赖</b> → 可以在 PC 上注入压力序列做单元测试。<br>命令映射从「4 个参数」改成「1 张表」。</div><div class="p">全项目最值得单测的代码</div></div>
+<div class="tile"><div class="t">joystick.c/h <span class="tag t-chg">改造</span></div><div class="d">原来直接调 <code>ADS1115_ReadChannel</code>（阻塞）。<br>改为从 <code>adc_scan</code> 取 AIN2/AIN3 的最新值，<b>不再自己触发 I2C</b>。</div><div class="p">只做坐标映射，不做采样</div></div>
+<div class="tile"><div class="t">hal_clock.c/h <span class="tag t-new">新增</span></div><div class="d">统一时钟使能，消灭「忘记开时钟」这一整类 bug。<br><code>Hal_Clock_Enable(HAL_CLK_GPIOB)</code> / <code>_Disable</code>，内部查表覆盖 GPIOx / SPIx / USARTx / DMAx / AFIO / USBFS / SDIO。</div><div class="p">顺手修掉上一份报告的 P0-4</div></div>
+</div>
+
+<h3>3.3 借这次改造一次清掉的历史包袱</h3>
+<p>因为换传感器必然要动 <code>Config.h</code> 和引脚定义，下面几项顺手做掉，成本极低：</p>
+<table>
+<tr><th style="width:230px">动作</th><th>理由</th></tr>
+<tr><td><b>删掉 <code>Config.h</code> 的 I2S2/I2S3 整段</b></td><td>V3 板上 PB12/PB13/PA15/PB3 本就悬空，这一段是 V1 时代遗留</td></tr>
+<tr><td><b>PB5 归还给 <code>PWR_CTRL</code></b></td><td class="ok">删掉 <code>I2S3_SD = PB5</code> 之后，上一份报告里的 P0 冲突自动消失</td></tr>
+<tr><td>补全缺失的板级定义</td><td><code>PWR_CTRL</code>(PB5)、<code>LED</code>(PB8)、<code>SD_CD</code>(PC6)、<code>HC05</code>(USART3 PD8/PD9 + PB14/PB15)、<code>ESP8266</code>；并注释说明 <code>CTRL0/CTRL1</code> 由机械开关 SW3/SW2 控制、软件不可见</td></tr>
+<tr><td>更正 OLED 型号注释</td><td>SSD1306 → CH1115</td></tr>
+<tr><td><code>Hal_GPIO_Init</code> 加合法性断言</td><td>现在 <code>pin &gt; 15</code> 会静默截断成掩码 0，什么都不做也不报错</td></tr>
+<tr><td>修正速度档位映射</td><td>现在 <code>LOW→10MHz</code>、<code>MEDIUM→2MHz</code> 是倒挂的</td></tr>
+</table>
+
+<h2 id="c4"><span class="n">4</span>采样路径设计</h2>
+
+<h3>4.1 现状为什么不能直接用</h3>
+<pre><span class="c">// ads1115.c:135-164  每次读通道的实际开销</span>
+int16_t ADS1115_ReadChannel(uint8_t channel) {
+    ADS1115_WriteReg(ADS1115_REG_CONFIG, config);   <span class="c">// 4 字节 I2C @100kHz ≈ 360µs</span>
+    <b>Delay_Ms(10);</b>                                   <span class="c">// ← 硬等 10ms，阻塞主循环</span>
+    ADS1115_ReadReg(ADS1115_REG_CONFIG);            <span class="c">// 6 字节 ≈ 540µs（只为查完成位）</span>
+    return ADS1115_ReadReg(ADS1115_REG_CONVERSION); <span class="c">// 6 字节 ≈ 540µs</span>
+}
+</pre>
+<table>
+<tr><th style="width:200px">指标</th><th style="width:180px">现状（4 通道轮询）</th><th>改造后目标</th></tr>
+<tr><td>单通道耗时</td><td class="bad">≈ 11.4 ms</td><td class="ok">≈ 2.4 ~ 4.9 ms</td></tr>
+<tr><td>主循环</td><td class="bad">每通道阻塞 10ms</td><td class="ok">零阻塞（<code>Poll</code> 立刻返回）</td></tr>
+<tr><td>压力采样率</td><td class="bad">22 Hz</td><td class="ok"><b>68 ~ 139 Hz</b></td></tr>
+<tr><td>摇杆采样率</td><td class="bad">22 Hz</td><td class="ok">34 ~ 69 Hz（现状 20 Hz）</td></tr>
+</table>
+
+<h3>4.2 非阻塞轮询调度器</h3>
+
+<pre><span class="c">/* adc_scan.h */</span>
+typedef enum { ADCCH_PRESS1 = 0, ADCCH_PRESS2, ADCCH_JOY_X, ADCCH_JOY_Y, ADCCH_NUM } adcch_t;
+
+<span class="c">/* 轮询序列：压力拿 2/3 带宽，摇杆 1/3。
+   等权序列 {0,1,2,3} 也可以，但压力是本次的主输入，值得加权。 */</span>
+static const uint8_t kScanSeq[] = { ADCCH_PRESS1, ADCCH_PRESS2, ADCCH_JOY_X,
+                                    ADCCH_PRESS1, ADCCH_PRESS2, ADCCH_JOY_Y };
+
+void AdcScan_Poll(void);                                  <span class="c">/* 主循环每轮调用一次，非阻塞 */</span>
+uint8_t AdcScan_Get(adcch_t ch, int16_t *val, uint8_t *is_new);
+</pre>
+
+<pre><span class="c">/* adc_scan.c 的 Poll 骨架 */</span>
+void AdcScan_Poll(void) {
+    if (s_state == SCAN_WAIT_DONE) {
+        if (!ADS1115_IsDone()) return;          <span class="c">/* ← 没完成就直接返回，不等待 */</span>
+        ADS1115_ReadRaw(&s_raw);
+        s_latest[s_seq[s_idx]] = s_raw;
+        s_fresh[s_seq[s_idx]] = 1;
+        s_idx = (s_idx + 1) % sizeof(kScanSeq);
+    }
+    ADS1115_Config(kScanSeq[s_idx], kPga, kDataRate);   <span class="c">/* 启动下一次转换 */</span>
+    s_state = SCAN_WAIT_DONE;
+}
+</pre>
+
+<h3>4.3 为什么不用 ALERT/RDY 中断</h3>
+<p><code>ALERT/RDY</code> 接在 <code>PE15</code>，理论上可以做"转换完成"事件驱动，看起来更优雅。但两个原因不建议：</p>
+<ol>
+<li><b>软件 I2C 不能在中断里跑。</b>一次 <code>ReadReg</code> 在 100 kHz 下要 540 µs 的位翻转，放进 ISR 会严重挤占 USBHS / SDIO 中断的响应。</li>
+<li><b>PE15 属于 <code>EXTI15_10</code>，已被 <code>hal_gpio.c</code> 无条件占用</b>，要走它那个"无参数回调"接口，既绕又丢失上下文。</li>
+</ol>
+<p>相应地，<b>建议把 <code>hal_gpio.c</code> 的 EXTI 处理函数改成按需编译</b>（或至少让 <code>Hal_GPIO_IRQ_Config</code> 支持 <code>volatile</code> 与正确的注册顺序），否则将来想用 ALERT 中断时会被堵住。</p>
+
+<h3>4.4 采样率与 I2C 提速</h3>
+<table>
+<tr><th style="width:160px">配置</th><th style="width:130px">单通道</th><th style="width:130px">一轮（6 次）</th><th style="width:130px">压力</th><th>摇杆</th></tr>
+<tr><td>DR=128SPS，I2C 100kHz</td><td>8.9 ms</td><td>53.4 ms</td><td>37 Hz</td><td>19 Hz</td></tr>
+<tr><td><b>DR=250SPS，I2C 100kHz</b>（推荐起手）</td><td><b>4.9 ms</b></td><td><b>29.4 ms</b></td><td><b>68 Hz</b></td><td><b>34 Hz</b></td></tr>
+<tr><td>DR=250SPS，I2C 400kHz</td><td>4.3 ms</td><td>25.8 ms</td><td>78 Hz</td><td>39 Hz</td></tr>
+<tr><td>DR=475SPS，I2C 400kHz</td><td>2.4 ms</td><td>14.4 ms</td><td>139 Hz</td><td>69 Hz</td></tr>
+</table>
+<div class="why"><b>I2C 提速是"免费"的</b>
+原理图上 <code>ADS_SCL/SDA</code> 的上拉是 <b>2.2 kΩ</b>（<code>R36/R37</code>），完全支持 400 kHz 快速模式。
+只需把 <code>ads1115.c:5-8</code> 的 <code>I2C_Delay()</code> 从 <code>Delay_Us(5)</code> 调成 <code>Delay_Us(1)</code>~<code>Delay_Us(2)</code>。
+<b>建议先按 250SPS / 100kHz 跑通，测出噪声水平后再决定是否提速</b> —— 提速会牺牲总线鲁棒性与采样噪声余量。</div>
+
+<h2 id="c5"><span class="n">5</span>零点校准与滤波</h2>
+
+<p>这是新旧架构<strong>最本质的差别</strong>：麦克风的能量阈值是"绝对值阈值"，标定一次长期有效；压力传感器的阈值是<strong>"相对零点的偏移"</strong>，而零点会随温度和时间漂移。</p>
+
+<h3>5.1 三级校准</h3>
+<table>
+<tr><th style="width:130px">时机</th><th style="width:230px">做法</th><th>为什么必须这样</th></tr>
+<tr><td><b>开机校准</b></td><td>上电后前 <code>N=16</code> 个样本取<b>中位数</b>作为 <code>P0</code></td><td>中位数抗野值（上电瞬间可能存在气路冲击、电源建立过程的扰动）</td></tr>
+<tr><td><b>空闲重校准</b></td><td>连续 <code>3 s</code> 内 <code>|P − P0| &lt; 漂移阈值</code>（如 3% 满量程）→ 用 <code>α = 0.001</code> 的极慢 IIR 更新 <code>P0</code></td><td>抗温漂。MEMS 差压传感器零点温漂典型 ±0.1 %FS/°C，1 kPa 量程下约 1 Pa/°C，长时间佩戴必须补</td></tr>
+<tr><td><b>禁用条件</b></td><td>只要 <code>gesture.state != GS_IDLE</code> 就<b>冻结</b> <code>P0</code></td><td class="bad">否则一次长吹的中间值会被当成零点，导致吹到一半"突然不灵"</td></tr>
+</table>
+
+<h3>5.2 数字滤波</h3>
+<pre><span class="c">/* 两级：中值抗脉冲 + 一阶 IIR 平滑 */</span>
+int16_t med = median3(raw_prev2, raw_prev1, raw_now);   <span class="c">/* 3 点中值: 去掉单点脉冲 */</span>
+p_filt = p_filt + (med - p_filt) * ALPHA / 256;          <span class="c">/* ALPHA≈64 对应 α≈0.25 */</span>
+</pre>
+<p><code>α=0.25</code> 在 68 Hz 采样下对应时间常数约 <code>1/(2π·17Hz) ≈ 9 ms</code>，对 100 ms 级的吸吹动作几乎无延迟，同时能把单次采样噪声压到 1/2。</p>
+
+<h3>5.3 双阈值迟滞（这是新增的关键设计）</h3>
+
+<pre><span class="c">/* 单阈值会让 zone 在阈值附近抖动，把一次长吹拆成「短吹+短吹」。
+   旧方案用「能量阈值 + 12 tick 全零检测」回避，新方案用迟滞直接解决。 */</span>
+zone_t Press_GetZone(int16_t dp) {
+    if (dp &gt;  +TH_HIGH)  return ZONE_POS;
+    if (dp &lt;  -TH_HIGH)  return ZONE_NEG;
+    if (dp &gt;  -TH_LOW &amp;&amp; dp &lt;  +TH_LOW) return ZONE_IDLE;   <span class="c">/* TH_LOW &lt; TH_HIGH */</span>
+    return s_last_zone;                                       <span class="c">/* 迟滞带内保持 */</span>
+}
+</pre>
+<table>
+<tr><th style="width:150px">参数</th><th style="width:110px">建议初值</th><th>说明</th></tr>
+<tr><td><code>TH_HIGH</code></td><td>待实测</td><td>进入 POS/NEG 的阈值，等于原来的 <code>g_blow_threshold</code> 对应量。可复用现有参数 id 0</td></tr>
+<tr><td><code>TH_LOW</code></td><td><code>TH_HIGH × 0.6</code></td><td>退出阈值。迟滞带越宽越不易抖，但会拖长"动作结束"的判定</td></tr>
+</table>
+
+<h2 id="c6"><span class="n">6</span>双极性手势状态机</h2>
+
+<h3>6.1 核心设计：方向反转即分段</h3>
+
+<p>旧状态机的 5 个状态（IDLE / BLOWING / GAP / WAIT1 / WAIT2）<strong>可以完整保留</strong>，只需给结构体加一个 <code>dir</code> 字段表示当前段的极性，并明确一条新规则：</p>
+
+<div class="lead" style="margin:10px 0">
+<b>「吹着突然变成吸」= 当前段立即结算 + 以反方向开一个新段。</b><br>
+这一条规则让「吹一下再吸一下」自然产生两段，于是现有的 <code>short_count</code> 组合逻辑<mark>不需要任何修改</mark>就能识别「吸→吹」「吹→吸」这类异向组合。
+</div>
+
+<pre><span class="c">/* gesture.h */</span>
+typedef enum { GZ_IDLE = 0, GZ_POS, GZ_NEG } gz_zone_t;      <span class="c">/* press.c 输出 */</span>
+typedef enum { GS_IDLE = 0, GS_ACTIVE, GS_GAP, GS_WAIT1, GS_WAIT2 } gs_state_t;
+
+typedef struct {                       <span class="c">/* 已完成的段快照 */</span>
+    int8_t   dir;                      <span class="c">/* +1 吹 / -1 吸 */</span>
+    uint16_t ticks;
+    uint16_t gap;
+    int16_t  peak;                     <span class="c">/* 带符号峰值 */</span>
+    int32_t  sum;
+} gs_seg_t;
+
+typedef struct {
+    uint8_t  state;                    <span class="c">/* 沿用旧的 5 状态 */</span>
+    int8_t   dir;                      <span class="c">/* ← 新增：当前段极性 */</span>
+    uint16_t ticks;                    <span class="c">/* = 旧的 blow_ticks */</span>
+    uint16_t gap_ticks;
+    uint16_t wait_ticks;
+    uint16_t long_last;
+    uint8_t  short_count;
+    int16_t  peak;
+    int32_t  sum;
+    gs_seg_t s1, s2;                   <span class="c">/* = 旧的 s_* / s2_* */</span>
+} gesture_t;
+
+typedef struct {                       <span class="c">/* ← 命令映射数据化 */</span>
+    int16_t pos_short,  pos_hold,  pos_double,  pos_triple;   <span class="c">/* 吹 */</span>
+    int16_t neg_short,  neg_hold,  neg_double,  neg_triple;   <span class="c">/* 吸 */</span>
+} gesture_map_t;
+
+int Gesture_Process(gesture_t *g, gz_zone_t zone, int16_t dp, const gesture_map_t *map);
+</pre>
+
+<h3>6.2 状态迁移表</h3>
+<table>
+<tr><th style="width:110px">状态</th><th style="width:230px">条件</th><th>动作</th></tr>
+<tr><td rowspan="3"><b>GS_IDLE</b></td><td><code>active</code>（zone ≠ IDLE）</td><td>→ ACTIVE，<code>dir = dir_now</code>，<code>ticks = 1</code>，初始化 peak/sum</td></tr>
+<tr><td colspan="2" style="background:#fafbfc">其余情况保持</td></tr>
+<tr><td colspan="2" style="background:#fafbfc"></td></tr>
+<tr><td rowspan="4"><b>GS_ACTIVE</b></td><td><code>active &amp;&amp; dir_now == dir</code></td><td><code>ticks++</code>，更新 peak/sum；若 <code>ticks &gt; MID_MAX</code> 且距上次触发 ≥ <code>LONG_REPEAT</code> → <mark>返回 <code>map(dir).hold</code>（连发）</mark></td></tr>
+<tr><td><code>active &amp;&amp; dir_now != dir</code></td><td><b>方向反转</b>：结算当前段 → GAP，<code>gap_ticks = 0</code>，<code>dir = dir_now</code></td></tr>
+<tr><td>静止</td><td>→ GAP，<code>gap_ticks = 0</code></td></tr>
+<tr><td colspan="2" style="background:#fafbfc"></td></tr>
+<tr><td rowspan="4"><b>GS_GAP</b></td><td><code>active &amp;&amp; dir_now == dir</code></td><td>同向续段：回 ACTIVE，<code>ticks++</code></td></tr>
+<tr><td><code>active &amp;&amp; dir_now != dir</code></td><td>异向新段：结算为异向段（可映射 <code>LEFT/RIGHT</code>）→ ACTIVE，<code>dir = dir_now</code></td></tr>
+<tr><td><code>gap_ticks++ ≥ MIN_GAP</code><br>且 <code>ticks ≤ SHORT_MAX</code></td><td>判定为<b>短段</b> → <code>short_count</code> 0→1 进 WAIT1，1→2 进 WAIT2，2→ 返回 <code>triple</code></td></tr>
+<tr><td><code>gap_ticks++ ≥ MIN_GAP</code><br>且 <code>ticks &gt; SHORT_MAX</code></td><td>判定为<b>长段</b>（未被 ACTIVE 里的连发捕获）→ 返回 <code>map(dir).hold</code>，回 IDLE</td></tr>
+<tr><td rowspan="2"><b>GS_WAIT1</b></td><td><code>wait_ticks &gt; COMBO_WAIT</code></td><td>超时 → 返回 <code>map(dir).short</code>，回 IDLE</td></tr>
+<tr><td>反向/异向又来了</td><td>按 6.1 的规则进 GAP，由组合逻辑处理</td></tr>
+<tr><td rowspan="2"><b>GS_WAIT2</b></td><td><code>wait_ticks &gt; COMBO_WAIT</code></td><td>超时 → 返回 <code>map(dir).double</code>，回 IDLE</td></tr>
+<tr><td>第 3 段来了</td><td>→ 返回 <code>map(dir).triple</code></td></tr>
+</table>
+
+<h3>6.3 跨通道组合（保留原有行为）</h3>
+<pre><span class="c">/* 与原 mic_hum.c:614-635 同构，只换了类型名。
+   第一版只处理「两口都是吹的短段」，与患者已习惯的行为一致。 */</span>
+if (g2.state == GS_WAIT1 &amp;&amp; prev_g2 != GS_WAIT1 &amp;&amp; g1.state == GS_WAIT1
+    &amp;&amp; g1.dir == +1 &amp;&amp; g2.dir == +1) {
+    cmd2 = CMD_LEFT;                       <span class="c">/* 口1 吹短 → 口2 吹短 */</span>
+    g1.state = g2.state = GS_IDLE;
+}
+</pre>
+<p>「通道内异向组合」（吸→吹）已经在 6.1 的规则里天然支持，映射到第 8 章的 <code>combo</code> 项即可，<strong>不需要额外的时序关联代码</strong>。</p>
+
+<h2 id="c7"><span class="n">7</span>协议扩展</h2>
+
+<h3>7.1 命令字节空间重新划分</h3>
+<pre>0x00 - 0x01   保留
+0x02 - 0x0D   沿用（现有 12 个命令，App 已实现）
+0x0E - 0x1F   新增扩展命令（18 个）
+0x20 - 0xEF   保留给未来的「带载荷命令」
+0xF0 - 0xFF   包头/控制（0xFA 采集 / 0xFB 参数 / 0xFC 关能量流 / 0xFD 开能量流 / 0xFE 能量包）
+</pre>
+<p><b>为什么坚持单字节</b>：Android 侧 <code>MainActivity.onCommand(cmd)</code> 是单字节分发，<code>UsbAccessoryManager.readLoop</code> 也靠"非 <code>0xFE/0xFA</code> 即命令"来解析。改成多字节会破坏这套简洁性，还得重新设计帧同步。<mark>把命令空间从 12 扩到 30，够用很久了。</mark></p>
+
+<h3>7.2 能量包（0xFE + 4B）：改为有符号，格式不变</h3>
+<pre>[0xFE][P1_H][P1_L][P2_H][P2_L]        P1/P2 由 uint16 改变为 <b>int16</b>（正=吹，负=吸）
+</pre>
+<div class="warn"><b>App 必须同步改一行</b>
+<code>UsbAccessoryManager.java:218-219</code> 现在是
+<code>(energyBuf[0] &amp; 0xFF) &lt;&lt; 8 | (energyBuf[1] &amp; 0xFF)</code> —— 无符号拼接。
+必须改成 <code>(short)(...)</code>，否则负值会显示成 65000+ 的大数，波形顶格。<br>
+<b>这是唯二必须改 App 的地方之一。</b></div>
+
+<h3>7.3 采集包（0xFA + 13B）：用 judge 的 bit7 表达方向</h3>
+<pre>judge = 0x01 / 0x02 / 0x03   →  吹：短 / 中 / 长
+judge = 0x81 / 0x82 / 0x83   →  吸：短 / 中 / 长
+</pre>
+<p>好处：<b>老 App 的 <code>if (j1 &gt; 0)</code> 判断仍然成立</b>，只是不能直接当数组下标（见下）。</p>
+<div class="danger"><b>App 侧有一个必改的越界点</b>
+<code>MainActivity.java:145</code> 定义 <code>JUDGE_NAMES = {"", "短吹", "中吹", "长吹"}</code>（4 个元素），
+<code>:429</code> 直接用 <code>JUDGE_NAMES[j1]</code> 取值。当 <code>j1 = 0x81</code> 时会 <b>ArrayIndexOutOfBounds 崩溃</b>。<br>
+必须改为 <code>JUDGE_NAMES[j1 &amp; 0x7F]</code> + 根据 <code>(j1 &amp; 0x80)</code> 拼上"吸/吹"前缀。</div>
+
+<h3>7.4 参数协议（0xFB + id + vH + vL）：格式不变，只加 id</h3>
+<table>
+<tr><th style="width:60px">id</th><th style="width:220px">含义</th><th>变化</th></tr>
+<tr><td>0</td><td>正压阈值 <code>TH_HIGH</code></td><td><span class="tag t-keep">沿用</span> 原「阈值」，语义从"能量"变为"正压偏移"</td></tr>
+<tr><td>1</td><td>短段上限 <code>SHORT_MAX</code></td><td><span class="tag t-keep">沿用</span></td></tr>
+<tr><td>2</td><td>组合等待 <code>COMBO_WAIT</code></td><td><span class="tag t-keep">沿用</span></td></tr>
+<tr><td>3</td><td>长段重复间隔 <code>LONG_REPEAT</code></td><td><span class="tag t-keep">沿用</span></td></tr>
+<tr><td>4</td><td>中段上限 <code>MID_MAX</code></td><td><span class="tag t-keep">沿用</span></td></tr>
+<tr><td>5</td><td>最小间隔 <code>MIN_GAP</code></td><td><span class="tag t-keep">沿用</span></td></tr>
+<tr><td>6</td><td>负压阈值 <code>TH_HIGH_NEG</code></td><td><span class="tag t-new">新增</span> 吸侧阈值（吸比吹费力，通常要单独定）</td></tr>
+<tr><td>7</td><td>迟滞宽度 <code>TH_LOW</code></td><td><span class="tag t-new">新增</span> 退出阈值</td></tr>
+<tr><td>8</td><td>零点漂移重校准阈值</td><td><span class="tag t-new">新增</span></td></tr>
+</table>
+
+<h2 id="c8"><span class="n">8</span>命令映射建议</h2>
+
+<h3>8.1 生理约束决定映射原则</h3>
+<div class="why"><b>吹可以持续很久，吸很难持续</b>
+呼气能轻松维持 5~10 秒，吸气受肺活量限制且主观更费力。
+所以：<b>「连发/翻页」这类需要持续按住的动作应该放在吹侧，「单次/步进」类动作放在吸侧。</b>
+这条原则比"对称好看"重要得多——它直接决定患者用起来累不累。</div>
+
+<h3>8.2 建议映射表（第一版）</h3>
+<table>
+<tr><th style="width:130px">手势</th><th style="width:230px">吸吹口 1（AIN1 / U5）</th><th>吸吹口 2（AIN0 / U13）</th></tr>
+<tr><td><b>短吹</b></td><td>ENTER <code>0x02</code> 确定</td><td>BACK <code>0x03</code> 返回</td></tr>
+<tr><td><b>双短吹</b></td><td>PLAY <code>0x04</code> 播放/暂停</td><td>MODE <code>0x0A</code> 模式切换</td></tr>
+<tr><td><b>长吹（连发）</b></td><td>NEXT <code>0x05</code> 下一个</td><td>PREV <code>0x06</code> 上一个</td></tr>
+<tr><td><b>三短吹</b></td><td>RETURN <code>0x09</code> 返回选择</td><td>SETTINGS <code>0x0E</code> <span class="tag t-new">新</span></td></tr>
+<tr><td><b>短吸</b></td><td>LEFT <code>0x0B</code> 上翻页</td><td>RIGHT <code>0x0C</code> 下翻页</td></tr>
+<tr><td><b>双短吸</b></td><td>VOL_UP_STEP <code>0x0F</code> <span class="tag t-new">新</span></td><td>VOL_DN_STEP <code>0x10</code> <span class="tag t-new">新</span></td></tr>
+<tr><td><b>长吸</b></td><td>VOL_UP <code>0x07</code> 音量连加</td><td>VOL_DN <code>0x08</code> 音量连减</td></tr>
+<tr><td><b>三短吸</b></td><td>HOME <code>0x11</code> <span class="tag t-new">新</span></td><td>CANCEL <code>0x12</code> <span class="tag t-new">新</span></td></tr>
+<tr><td colspan="3" style="background:#fafbfc"><b>跨通道组合</b>：口1 吹短 → 口2 吹短 = <code>LEFT</code>；口2 吹短 → 口1 吹短 = <code>RIGHT</code>（与患者已习惯的 A/B 跨麦行为一致）</td></tr>
+<tr><td colspan="3" style="background:#fafbfc"><b>通道内异向组合（第二版可选）</b>：吹→吸 = <code>0x13</code>；吸→吹 = <code>0x14</code></td></tr>
+</table>
+
+<div class="note"><b>关于音量的两点提醒</b>
+① 长吸连发音量在生理上受限（一次吸气只能爬几格），建议同时提供「双短吸」做<b>步进</b>（一次 +5%），连加和步进互补。<br>
+② 原来的 <code>g_volume_mode</code> 可以彻底删掉 —— 音量直接由吸侧专职负责。相应地把 <code>phone_control.c:652-655</code> 的 VOL_MODE 出队处理、<code>HUM_CMD_VOL_MODE</code> 映射、以及 App 设置页里那个"音量模式"提示一并清理。命令字节 <code>0x0D</code> 可以回收给"切换映射表 A/B"这类用途。</div>
+
+<h3>8.3 用真实数据定映射，而不是拍脑袋</h3>
+<p>现有架构里已经有一整套<strong>手势采集与统计工具</strong>，可以直接复用：</p>
+<ul>
+<li>MCU 侧：<code>0xFA</code> 采集模式，返回 <code>judge / ticks / peak / avg / gap</code></li>
+<li>App 侧：设置页的 12 项下拉 + "去极端平均"统计 + 历史列表（<code>MainActivity.java:395-465</code>）</li>
+</ul>
+<p>只需把 <code>COLLECT_NAMES</code>（<code>MainActivity.java:131-144</code>）从"MIC_A 短吹 / 中吹 / 长吹…"改成"口1 短吹 / 长吸 / 双短吹…"。<br>
+<b>建议第 6 阶段专门花半天，让患者按提示做一轮，用统计出的峰值/时长/间隔来定阈值和映射。</b>这比任何理论推算都准。</p>
+
+<h2 id="c9"><span class="n">9</span>容易被忽略的节拍传染</h2>
+
+<div class="danger"><b>这是一个会静默出错的连带影响</b>
+现在的主循环节拍被 <code>Mic_Hum_Poll</code> 里的 <code>if (!s_a_ready || !s_b_ready) return;</code> 门控成 <b>8 ms</b>（125 Hz tick）。
+改用 ADS1115 后，节拍变成"由 I2C 转换完成时间决定"，如果 DR=250SPS 就是 <b>约 4 ms</b>。
+<mark>主循环快了一倍，所有"按调用次数分频"的代码都会失准。</mark>
+</div>
+
+<table>
+<tr><th style="width:230px">受影响处</th><th style="width:230px">现在</th><th>必须同步调整</th></tr>
+<tr><td><code>phone_control.c:124</code> OLED 刷新分频 <code>oled_div &lt; 4</code></td><td>4 × 8ms = 32 ms</td><td>改成 <code>&lt; 8</code>（约 32 ms），否则刷新翻倍、浪费 SPI 带宽</td></tr>
+<tr><td><code>phone_control.c:286</code> 能量包 <code>energy_call_count &gt;= 3</code></td><td>3 × 8ms = 24 ms/包</td><td>改成 <code>&gt;= 6</code>（约 24 ms）</td></tr>
+<tr><td>所有以 tick 为单位的参数<br>（<code>SHORT_MAX</code>=40t 等）</td><td>1 tick = 8 ms</td><td class="bad"><b>必须重新标定</b>：tick 变成 4 ms 后，同一个数值代表的时间缩短一半</td></tr>
+<tr><td>App 侧 <code>t × 8</code> 的毫秒换算</td><td><code>MainActivity.java:330/337</code></td><td>改成 <code>t × 4</code>，或让 MCU 在协议里带上 tick 周期</td></tr>
+</table>
+
+<div class="why"><b>更稳的做法：让 tick 周期显式化</b>
+在 <code>press.c</code> 里维护一个基于滴答计数的 <code>s_tick_ms</code>，并在参数协议里新增一个 id 让 App 读取；
+或者干脆把 MCU 侧所有以 tick 计的参数都换算成毫秒再比较。
+<mark>无论如何，这个"1 tick 到底多少毫秒"必须只在一处定义。</mark></div>
+
+<h2 id="c10"><span class="n">10</span>迁移步骤</h2>
+
+<table>
+<tr><th style="width:70px">阶段</th><th style="width:150px">内容</th><th style="width:90px">估时</th><th>验收标准</th></tr>
+<tr><td><b>P0</b></td><td>抽象层整改<br><span class="tag t-new">hal_clock.c</span> <span class="tag t-chg">Config.h 整改</span> <span class="tag t-chg">hal_gpio 断言+速度映射</span></td><td>0.5 天</td><td>全工程编译通过；PB5 冲突消失；串口仍正常</td></tr>
+<tr><td><b>P1</b></td><td>硬件实测<br>零点电压 / 满量程摆幅 / 噪声峰峰值 / 两路读数一致性</td><td>0.5 天</td><td>得到 <code>V0</code>、<code>ΔV</code>、噪声 RMS；确定 ADS1115 的 PGA 档位</td></tr>
+<tr><td><b>P2</b></td><td>驱动层<br><span class="tag t-chg">ads1115.c 去阻塞</span> <span class="tag t-new">adc_scan.c</span></td><td>1.5 天</td><td>串口能打印 4 通道原始值；压力通道 ≥ 60 Hz；主循环无 <code>Delay</code></td></tr>
+<tr><td><b>P3</b></td><td>信号层<br><span class="tag t-new">press.c</span> 零点+滤波+zone</td><td>1 天</td><td>串口打印 ΔP 与 zone，静止时稳定在 IDLE，吹/吸能正确翻转</td></tr>
+<tr><td><b>P4</b></td><td>语义层<br><span class="tag t-new">gesture.c</span> 从 <code>mic_process</code> 迁移</td><td>1.5 天</td><td><b>PC 上单测通过</b>：注入压力序列 → 断言命令序列</td></tr>
+<tr><td><b>P5</b></td><td>业务层 + App<br><span class="tag t-chg">phone_control.c</span> 3 处 <span class="tag t-chg">协议扩展</span></td><td>1 天</td><td>吹/吸能触发 App 动作；波形显示双向；无数组越界</td></tr>
+<tr><td><b>P6</b></td><td>数据采集定阈值<br>复用 0xFA 采集 + App 统计面板</td><td>0.5 天</td><td>得到真实峰值/时长/间隔统计，据此定 8 个参数</td></tr>
+<tr><td><b>P7</b></td><td>清理<br><span class="tag t-del">删 mic_hum.c/h</span> <span class="tag t-del">删 sdio_test.c</span> <span class="tag t-new">拆 hardware.c</span></td><td>0.5 天</td><td><code>main.c</code> 回到 &lt; 80 行</td></tr>
+</table>
+<p><b>合计约 7 个工作日</b>（含调试余量）。P0 建议不要跳过 —— 后面每一步都受益于它。</p>
+
+<h3>P5 的精确改动点</h3>
+<pre><span class="c">// phone_control.c 的改动只有三处</span>
+
+<span class="c">// 1) 原：int hum_cmd = Mic_Hum_Poll(&amp;mean_a, &amp;mean_b);</span>
+AdcScan_Poll();                       <span class="c">/* 采样调度（非阻塞） */</span>
+Press_Update();                       <span class="c">/* 零点 + 滤波 + zone */</span>
+int cmd = Gesture_Poll();             <span class="c">/* 手势 → 命令 */</span>
+int16_t p1, p2;
+Press_Get(&amp;p1, &amp;p2);                 <span class="c">/* 供波形 / 能量包，带符号 */</span>
+
+<span class="c">// 2) 能量包：uint16 → int16（其余不变）</span>
+uint8_t buf[5] = {0xFE, (uint8_t)(p1 &gt;&gt; 8), (uint8_t)(p1 &amp; 0xFF),
+                        (uint8_t)(p2 &gt;&gt; 8), (uint8_t)(p2 &amp; 0xFF)};
+
+<span class="c">// 3) 分频系数与 tick 语义（见第 9 章）</span>
+</pre>
+
+<h2 id="c11"><span class="n">11</span>风险与验证清单</h2>
+
+<table>
+<tr><th style="width:40px">#</th><th style="width:250px">风险</th><th style="width:250px">验证方法 / 应对</th><th>严重性</th></tr>
+<tr><td>1</td><td><b>ADS1115 输入阻抗与传感器输出阻抗不匹配</b><br>AIN0/AIN1 是 0Ω 直连、无缓冲，而 ADS1115 是开关电容输入，源阻抗过高会带来增益误差</td><td>把 ADS1115 读数与片内 ADC（有跟随器）读数做长期比对。<br>若系统性偏差 &gt; 1%，把 <code>R40/R26</code> 从 0Ω 改接到跟随器输出（硬件小改）</td><td class="mid">中</td></tr>
+<tr><td>2</td><td><b>PGA 档位选错导致削顶</b><br>传感器零点若是 1.65V、摆幅 ±0.8V，则需 0.85~2.45V</td><td>P1 阶段实测 <code>V0</code> 与 <code>ΔV</code> 后确定。<code>±4.096V</code> 最稳妥（覆盖 0~4.096V）但分辨率 125 µV/LSB；<code>±2.048V</code> 分辨率翻倍但有削顶风险</td><td class="bad">高</td></tr>
+<tr><td>3</td><td><b>零点温漂</b>导致长时间使用后阈值失效</td><td>5.1 节的"空闲重校准"必须实现，且必须被 <code>GS_IDLE</code> 门控</td><td class="mid">中</td></tr>
+<tr><td>4</td><td><b>节拍传染</b>（第 9 章）—— 分频与 tick 参数失准</td><td>把 tick 周期收敛到一处定义；改完后逐一核对 4 个受影响点</td><td class="bad">高</td></tr>
+<tr><td>5</td><td><b>App 数组越界崩溃</b><br><code>JUDGE_NAMES[j1]</code> 遇到 <code>0x81</code></td><td>必须与 MCU 同步发布，不能只刷 MCU</td><td class="bad">高</td></tr>
+<tr><td>6</td><td><b>I2C 总线故障无看门狗</b><br>原来有"I2S 全零检测 → 重启"，新链路需要等效机制</td><td>新增：连续 N 次 <code>ADS1115_IsDone()</code> 超时 → 重新初始化 I2C + 重配 CONFIG 寄存器。<br><b>这是替换掉 <code>I2S_Restart()</code> 的必要补偿</b></td><td class="mid">中</td></tr>
+<tr><td>7</td><td><b>气路物理风险</b><br>吸吹管的水汽/冷凝会堵塞传感器气嘴</td><td>架构外但必须提醒：加疏水滤芯 / 加长气路 / 定期吹扫。<br>软件侧可通过"零点长期单向漂移"间接发现</td><td class="mid">中</td></tr>
+<tr><td>8</td><td>摇杆采样率被压力通道挤占</td><td>4.2 的加权轮询序列已缓解（摇杆 34~69 Hz，优于现状 20 Hz）</td><td class="ok">低</td></tr>
+</table>
+
+<h2 id="c12"><span class="n">12</span>明确不做什么</h2>
+
+<table>
+<tr><th style="width:300px">不要做</th><th>原因</th></tr>
+<tr><td>不要保留 <code>mic_hum</code> 的"能量"抽象去包一层压力</td><td>语义不同（能量恒正 vs 压力带符号），硬套会把"吸/吹可分"这个最大收益丢掉</td></tr>
+<tr><td>不要为了兼容老 App 而保持"压力绝对值"语义</td><td>同上，白丢一半命令空间</td></tr>
+<tr><td>不要用 ALERT/RDY 中断去读 ADS1115</td><td>软件 I2C 在 ISR 里跑 540 µs 会挤占 USBHS/SDIO；且 PE15 的 EXTI 已被 <code>hal_gpio</code> 占用</td></tr>
+<tr><td>不要在同一次改造里顺手重写 AOA / USB 层</td><td>这次改动的爆炸半径已经不小，USB 那部分刚稳定下来</td></tr>
+<tr><td>不要把 ADS1115 改成"连续模式 + MUX 轮询"</td><td>切 MUX 会作废当前转换，读到的是上一个通道的数据，需要延迟一拍读——引入一整个新的错位类 bug。单次转换 + 非阻塞轮询更简单可靠</td></tr>
+<tr><td>不要继续往 <code>main.c</code> 加 <code>TEST_MODE</code> 分支</td><td>顺手把 P7 的 <code>hardware.c</code> 拆出来</td></tr>
+</table>
+
+<div class="note" style="margin-top:26px"><b>一句话总结这套架构</b>
+<b>把"麦克风能量检测"整体替换为"压力手势识别"</b>，
+用 <code>ads1115 → adc_scan → press → gesture</code> 四层替掉单一的 <code>mic_hum</code>：
+采样非阻塞、阈值双极性、状态机纯逻辑可单测、命令映射数据化。
+顺手清掉 PB5 冲突与 I2S 遗留配置，并把最难测的那 170 行从硬件里剥出来。</div>
+
+</main>
+
+<footer>
+本文档为设计方案，未修改任何工程文件。硬件数据全部来自 <code>电路.txt</code>（嘉立创 EDA 导出 JSON）的网表核对；
+代码引用以当前工作区实际文件为准。凡标注"待实测"的参数均需 P1 阶段用实测数据确定。
+</footer>
+
+</body>
+</html>

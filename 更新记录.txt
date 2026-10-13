@@ -1,0 +1,819 @@
+﻿========================================
+  VOICE 项目更新记录
+  日期: 2026-08-21
+========================================
+
+【项目概述】
+为高位截瘫患者制作的语音控制系统：
+- MCU: CH32H417，外接语音模块识别语音
+- 通信: USB AOA协议，MCU做USB Host，手机做Accessory
+- 手机App: 显示应用列表，接收MCU二进制命令控制媒体播放
+- 命令: 2=ENTER 3=BACK 4=PLAY 5=NEXT 6=PREV (单字节二进制)
+
+=======================================
+   第三十二轮更新 (2026-10-11)
+   USBFS MSC U盘迁移 + 格式化修复 + FAT文件读取
+================================
+
+----------------------------------------
+一百一十一、USBFS MSC U盘迁移完成(U盘可识别)
+----------------------------------------
+
+背景: USBHS Device枚举失败(一百一十)，改用USBFS
+Device模式(PA11/PA12，全速PHY信号要求更低)。
+
+实现:
+1. 复制官方ch32v30x_usbfs_device.c/h到Phone目录
+   (来源: V307_EXAM\USB\USBFS\DEVICE\MSC_U-Disk\)
+2. sw_udisk.c 八处USBHS→USBFS接口替换
+   (USBFS_Endp_DataUp/UEP2_TX_CTRL等)
+3. main.c TEST_MODE=2初始化改为USBFS
+4. usb_desc.c/h新增MyCfgDescr数组(64字节包版本
+   配置描述符)供ch32v30x_usbfs_device.c引用
+5. USBFS bulk包最大64字节(USBHS是512)
+
+冲突处理: MounRiver Studio会重新生成subdir.mk，
+不能靠编辑subdir.mk排除文件，重命名为.bak:
+usbhs_dev.c/h.bak、ch32v30x_usbfs_host.c.bak
+
+验证: 编译通过(text=23152)，Windows成功完成格式化，
+U盘可正常读写(用户实测)。
+
+----------------------------------------
+一百一十二、Windows格式化失败根因: DMA模式死锁
+----------------------------------------
+
+现象: U盘识别但提示需要格式化，且Windows无法
+完成格式化。
+
+根因: main.c SD_Init后执行NVIC_DisableIRQ(SDIO_IRQn)，
+但SD卡仍处于DMA模式:
+- 读路径: SD_ReadBlock只等DMA硬件标志
+  (DMA2->INTFR & 0X2000，无需中断) → 读成功
+- 写路径: SD_WriteBlock(DMA模式)死等TransferEnd
+  标志，该标志由SDIO_IRQHandler置位，但SDIO
+  中断已被禁用且与USBFS同为优先级0无法嵌套
+  → 死等SDIO_DATATIMEOUT(约30秒) → WRITE10
+  超时失败 → 格式化失败
+
+提示需要格式化本身正常: SD卡是空卡无FAT分区表。
+
+修复:
+1. main.c: SD_Init后调SD_SetDeviceMode(SD_POLLING_MODE)
+   POLLING模式读写完全不依赖中断，USB中断里
+   同步执行，无死锁风险(每扇区写约5ms够用)
+2. sw_udisk.c: 补上读写失败SCSI错误上报
+   读失败sense=0x03/0x11，写失败sense=0x03/0x03，
+   CSW status=1让Windows重试
+
+编译通过(text=23152)。烧录验证: Windows成功格式化，
+写入123.txt正常(用户实测)。
+
+----------------------------------------
+一百一十三、FatFs移植 + TEST_MODE=3读SD卡FAT文件
+----------------------------------------
+
+背景: U盘格式化成功后，需验证MCU端能直接读
+Windows写入的文件(SD卡FAT32文件系统解析)。
+
+实现(移植官方FatFs示例:
+V307_EXAM\SDIO\SDIO_SD_FATFS\FATFS\):
+1. 复制FatFs R0.13+源码到Phone目录:
+   ff.c/ff.h/ffconf.h/diskio.c/diskio.h/
+   ffsystem.c/ffunicode.c
+2. diskio.c适配sdio_sd.h驱动:
+   disk_read/SD_ReadDisk、disk_write/SD_WriteDisk、
+   disk_ioctl(GET_SECTOR_COUNT=Capacity/512)
+   disk_status/initialize直接返回READY
+   (main.c已先调SD_Init())
+3. ffconf.h: FF_CODE_PAGE 936→437(LFN=0时
+   不依赖unicode表)，FF_USE_LFN=0(短文件名8.3
+   足够，省RAM)，FF_VOLUMES=3，扇区512
+4. obj/Phone/subdir.mk加ff.c/diskio.c等编译条目
+   (FatFs文件放Phone/目录，MounRiver IDE重新生成
+   subdir.mk时自动发现，无需改.cproject)
+
+main.c新增TEST_MODE=3(SD卡FAT文件读取模式):
+SD_Init → f_mount("1:") → f_open("1:/123.txt")
+→ f_read → 串口打印全文 → OLED显示
+(行0标题、行1字节数、行2-7文件内容，
+16字符/行，处理\r\n换行)
+
+踩坑: f_mount failed: 3(FR_NOT_READY) —
+main.c用"1:"卷号，FatFs传给diskio的pdrv=1，
+但diskio.c适配时把DEV_MMC写成0 → disk_initialize(1)
+落到default返回STA_NOINIT → 挂载失败。
+官方示例"1:"配DEV_MMC=1，改回即好。
+
+验证(TEST_MODE=3): 编译通过(text=27892,
+FatFs约4.5K text)，SD_Init/Mount/Open/Read全OK，
+成功读出Windows写入的7字节"ABCDEFG"
+(串口打印+OLED显示，用户实测)。
+
+=======================================
+    第三十一轮更新 (2026-09-30)
+    V307 SDIO SD卡驱动 + USB MSC U盘模式尝试
+================================
+
+----------------------------------------
+一百零八、SDIO SD卡驱动适配V307并验证通过
+----------------------------------------
+
+背景: V307需通过USB MSC U盘模式将SD卡暴露给电脑，
+前提是SD卡SDIO驱动可用。
+
+实现:
+1. 从CH32V307参考代码移植SDIO SD卡驱动到Phone目录
+2. V307 SDIO引脚: PC8(D0) PC9(D1) PC10(D2) PC11(D3/CS)
+   PD2(CMD) PC12(CLK) PD0(CD检测)
+3. SDIO中断优先级=0，与USBHS相同
+4. API: SD_ReadDisk(buf,sector,cnt) / SD_WriteDisk(buf,sector,cnt)
+   sector为512字节扇区号
+
+验证(TEST_MODE=1): SDSC V2.0, 1903MB, BlockSize=1024,
+读写校验通过。
+
+----------------------------------------
+一百零九、USB MSC U盘模式实现(TEST_MODE=2)
+----------------------------------------
+
+目标: SD卡经USBHS Device模式暴露给电脑当U盘用。
+
+实现文件:
+1. Phone/usb_desc.h/c — USB设备描述符
+   VID=0x1A86 PID=0xFE10 产品名"VOICE Udisk"
+2. Phone/usbhs_dev.h/c — USBHS设备驱动+中断处理
+   EP2 IN / EP3 OUT批量传输
+   含调试计数器: USBHS_Int_Count/Setup/Trans/Rst
+   速度设为USBHS_UC_SPEED_HIGH
+3. Phone/sw_udisk.h/c — MSC SCSI协议处理
+   UDISK_Up_OnePack调SD_ReadDisk
+   UDISK_Down_OnePack调SD_WriteDisk
+4. User/main.c TEST_MODE=2 — OLED显示各阶段状态+
+   USBHS寄存器调试值
+5. obj/Phone/subdir.mk — 添加新文件编译规则
+
+注意: USBHS与串口互斥，调试USBHS只能用OLED显示。
+USBHS_RCC_Init符号冲突，Device版重命名为USBHS_Dev_RCC_Init。
+嵌入式精简printf不支持%lld会卡死，用(u32)(CardCapacity>>20)代替。
+
+编译通过(text=23720)。
+
+----------------------------------------
+一百一十、USBHS Device枚举失败排查(未解决)
+----------------------------------------
+
+现象: 电脑提示"电脑未在充电"(USB枚举失败的Windows误报)，
+OLED显示USB Ready但不变ENUM。
+
+中断统计: R=20(BUS_RST 20次) S=0(SETUP_ACT 0次)
+T=0(TRANSFER 0次) A=0(DevAddr=0)
+即: 主机发USB复位但从不发SETUP请求。
+
+PHY状态: P=0(SPEED_TYPE=全速，高速握手失败)
+M=05→01(插线后PHY从挂起变活动)
+E=39(INT_EN=0x39，SETUP_ACT中断已使能)
+
+已排除:
+- HSE=8MHz正确
+- 无USBFS时钟冲突
+- SDIO中断禁用后仍S=0
+- 全速模式(USBHS_UC_SPEED_FULL)复位更多(R=81)更差
+- NVIC中断在触发(R>0证明)
+
+分析: 高速握手失败后PHY降级到全速，但全速下主机仍
+不发SETUP。可能是USBHS PHY在Device模式下信号质量问题，
+或Type-A转Type-C线信号质量差。
+
+结论: 搁置USB MSC U盘模式，TEST_MODE调回0(正常运行)。
+后续可选方向:
+1. 改用USBFS Device模式(参考代码在
+   V307_EXAM\USB\USBFS\DEVICE\MSC_U-Disk\，全速PHY信号
+   要求更低)
+2. 排查Type-A转Type-C线是否支持数据传输
+3. 检查板子USBHS口公头/母头影响Device模式连接方向
+
+======================================
+   第三十轮更新 (2026-09-01)
+   B站巨长卡片边界处理分软件优化
+=================================
+
+----------------------------------------
+一百零七、UsbAccessoryManager.start()可重入+isRunning()
+----------------------------------------
+
+问题: AOA断连后onDisconnected调用stop()，但start()中
+readThread无条件new+start，如果重复调用start()会创建
+多个读线程。BroadcastReceiver重复注册也会崩溃。
+
+解决:
+1. start()开头先unregisterReceiver(try-catch防首次未注册)
+2. readThread改为可重入: if(readThread==null||!isAlive)
+   才创建新线程
+3. 新增isRunning()方法返回running标志，供外部查询状态
+
+意义: start()可安全重复调用，不会创建多线程或注册崩溃。
+必要性: 断连重连场景下start()可能被多次调用。
+
+----------------------------------------
+一百零八、断连时finish()让系统重新拉起App自动授权
+----------------------------------------
+
+问题: AOA断连重连后App还在运行，系统只发ATTACHED广播
+不重新启动App，不触发intent-filter自动授权，弹USB权限
+对话框。高位截瘫患者无法点击。
+
+解决:
+1. MainActivity.onDisconnected中调用usbManager.stop()+
+   finish()：断连时让Activity自己销毁
+2. onCreate中复用sUsbManager时，如果!isRunning()则start()：
+   App被系统重新拉起时确保USB启动
+
+思路: 断连→App finish()→重连时App不在运行→系统通过
+intent-filter重新拉起App+自动授权→不弹窗
+
+状态: 用户反馈"方案一还是不行"，但代码保留待进一步验证。
+可能原因: finish()后App进程未完全退出（无障碍服务保活），
+系统认为App还在运行，不重新拉起。
+
+意义: 尝试通过finish()让系统重新拉起App绕过权限对话框。
+必要性: 高位截瘫患者无法手动点击USB权限对话框。
+
+----------------------------------------
+一百零六、scrollToVisible巨长卡片cardTooTall分软件处理
+----------------------------------------
+
+问题: B站有些视频卡片（带大图推荐卡）高度>1264px
+(botLine-topLine=1504-240)，中心在中心区[600,1000]内，
+但卡片顶部<topLine或底部>botLine，没完整出现在边界内。
+scrollToVisible的cardTooTall&&inCenter条件直接不滑动，
+红框被showHighlightClipped裁剪到边界内只显示部分，
+用户看到"红框不截全也不滑动"。
+
+根因: cardTooTall&&inCenter条件是第二十轮为朋友圈巨长卡片
+(1487px占满屏幕，top=0和top=11之间振荡50px)设计的防振荡
+措施。但B站大卡片也命中此条件，中心在中心区但卡片超出边界
+时不滑动，红框被裁剪。该条件不区分软件，对B站误判。
+
+解决: cardTooTall&&inCenter条件改为分软件处理:
+- 微信/朋友圈: 保持原逻辑，巨长卡片中心在中心区就不滑动
+  （防振荡，朋友圈卡片占满屏幕滑动无用）
+- B站等: 巨长卡片中心在中心区时，检查中心是否已对齐到
+  targetCenter:
+  - abs(offset) < avgCardHeight/3 (≈142px) → 中心已对齐，
+    不滑动（卡片太高无法完整显示，中心对齐即可接受）
+  - abs(offset) >= avgCardHeight/3 → 中心偏离较多，
+    继续滑动对齐到targetCenter
+
+同时把isWechat声明从条件3前移到条件1前，供条件1使用。
+
+意义: B站巨长卡片中心偏离targetCenter较多时会滑动对齐，
+对齐后才停止；不再像之前那样中心在中心区边缘就不滑动。
+朋友圈保持防振荡不受影响。
+必要性: cardTooTall条件本是为朋友圈防振荡设计，B站卡片
+布局不同（标准RecyclerView线性滑动），不应套用同一逻辑。
+
+踩坑: B站大卡片如果中心已对齐(offset≈0)时滑动50px(最小
+moveDist)会偏离，然后又滑回来可能振荡。加abs(offset)
+<avgCardHeight/3判断避免此情况：中心已对齐就不滑动。
+
+----------------------------------------
+
+=======================================
+   第二十九轮更新 (2026-08-31)
+   AOA断连重连优化 + Android端USB连接持久化
+=================================
+
+----------------------------------------
+一百零一、AOA_Enumerate非标准PID判定（MCU端）
+----------------------------------------
+
+问题: 手机VID=0x2D95 PID=0x6013(非标准AOA VID/PID), 有class=0xFF接口
+(3个端点: 2 bulk + 1 interrupt, 标准AOA只有2 bulk无interrupt)。
+GET_PROTOCOL返回2说明支持AOA但未进入AOA模式, class=0xFF接口是ADB不是AOA。
+之前直接把有class=0xFF+bulk端点的非标准PID设备判定为AOA,
+导致MCU认为连上了但手机App显示"USB未连接"(数据被丢弃)。
+
+解决: 在AOA_Enumerate中, 当PID非标准但找到bulk端点时, 用GET_PROTOCOL区分:
+- GET_PROTOCOL返回>0(AOA_CheckSupport返回0) → 支持AOA但不在AOA模式
+  is_aoa_device保持0, 让调用者发START切换
+- GET_PROTOCOL失败/返回0(AOA_CheckSupport返回非0) → 可能已在AOA模式
+  is_aoa_device=1, 直接使用class=0xFF接口
+
+踩坑: AOA_CheckSupport返回值含义容易混淆:
+- 返回0 = 支持AOA(GET_PROTOCOL>0, 未进入AOA模式)
+- 返回非0 = 不支持或已在AOA模式(GET_PROTOCOL=0或失败)
+
+意义: MCU不再误判非AOA设备为AOA设备, 避免无效通信。
+必要性: 手机ADB接口和AOA接口都是class=0xFF, 必须用GET_PROTOCOL区分。
+
+----------------------------------------
+一百零二、AOA_Host_Connect强制USB Host重置（MCU端）
+----------------------------------------
+
+问题: 第一次连接成功(发START后100ms设备断开→重枚举为0x18D1/0x2D01)。
+断连后重连时, 发START后设备5秒都没断开, 手机不响应START_ACCESSORY。
+原因: App还在运行, Android的AOA框架状态不一致, 不重新切换到AOA模式。
+
+解决: 在AOA_Host_Connect开头, 不再只做端口复位, 而是完整禁用USB Host 500ms
+再重新启用(USBHS_Host_Init(DISABLE)→Delay→USBHS_Host_Init(ENABLE)):
+- 禁用时D+/D-拉低 → Android检测到USB断开 → 清理AOA框架状态
+- 重新启用后D+/D-恢复 → Android检测到USB插入 → AOA框架重置
+- 再发START_ACCESSORY → Android响应 → 切换到AOA模式
+
+意义: 每次连接前强制Android检测到USB断开-重连, 清理AOA框架状态。
+必要性: 不强制断开, Android不响应第二次START, 导致重连失败。
+
+----------------------------------------
+一百零三、Android端USB连接持久化（UsbAccessoryManager + MainActivity）
+----------------------------------------
+
+问题: USB断连时Activity被销毁→onDestroy调用usbManager.stop()→BroadcastReceiver注销。
+之后USB重插时App不在运行→系统弹"要打开声音控制来处理1.0吗？"对话框→需手动点击。
+
+解决: 
+1. UsbAccessoryManager:
+   - callback和context改成volatile非final
+   - 添加setCallback(Context ctx, Callback cb)方法, ctx非null时更新context
+   - 所有callback调用前加if(callback!=null)检查
+   - 保存ParcelFileDescriptor引用, closeStream()中显式关闭pfd
+
+2. MainActivity:
+   - sUsbManager改成static, onCreate中复用已有实例只setCallback(this,this)
+   - onDestroy中只setCallback(null,null), 不调用stop()
+   - onConnected()加try-catch防崩溃
+
+意义: Activity被销毁后UsbAccessoryManager仍运行, BroadcastReceiver仍注册,
+USB重插时ATTACHED广播直接处理, 不弹系统对话框。
+必要性: 高位截瘫患者无法频繁找人点击对话框。
+
+踩坑: 
+- context用getApplicationContext()导致App闪退, 改回传入的context
+- setCallback(null,null)会把context置null导致bringActivityToFront崩溃,
+  改为只在ctx非null时更新context
+- 删除intent-filter后App无法获取USB权限, 已恢复intent-filter
+
+----------------------------------------
+一百零四、accessory_filter.xml model修正
+----------------------------------------
+
+问题: accessory_filter.xml中model是CH32H417(旧H417板子),
+但MCU端AOA_MODEL是CH32V307。intent-filter不匹配→系统不自动授权→弹对话框。
+
+解决: model从CH32H417改为CH32V307, 与MCU端AOA_MODEL一致。
+
+意义: intent-filter匹配后系统自动授权, 减少对话框。
+必要性: model不匹配导致系统不认识accessory, 每次都弹确认对话框。
+
+----------------------------------------
+一百零五、对项目的新理解
+----------------------------------------
+
+1. Android AOA框架状态问题: 第一次连接时Android检测到新USB设备插入,
+   AOA框架是干净的, 响应START_ACCESSORY。断连后App还在运行,
+   AOA框架状态不一致, 不响应第二次START。必须在MCU端强制USB断开-重连
+   来清理Android的AOA框架状态。
+
+2. USB Accessory权限模型: 
+   - 有intent-filter → 系统弹"打开App"对话框 → 用户确认 → 权限授予
+   - 无intent-filter → 需手动requestPermission() → 弹权限对话框
+   - 已授权 → openAccessory()直接成功 → 不弹对话框
+   - 权限是持久的, 一旦授权, 同一accessory不再弹对话框
+
+3. static UsbAccessoryManager的边界条件:
+   - App进程被杀死: static变量重置为null, onCreate创建新实例
+   - App进程保活(无障碍服务): static变量保留, onCreate只setCallback
+   - context指向已销毁Activity: getPackageName/startActivity仍可用
+   - callback为null: 所有回调前加null检查, 不崩溃
+
+4. 遗留问题: 断连重连时仍可能弹系统对话框, 需要用户点击一次"确定"。
+   Android安全模型要求第一次必须人工授权, 之后权限持久化。
+   对于高位截瘫患者, 需要有人帮忙做第一次设置, 之后自动。
+   完全零点击方案可能需要root权限或系统签名, 暂未实现。
+
+======================================
+   第三十三轮更新 (2026-10-12)
+   USBFS HID键鼠模式 + ADS1115驱动 + 摇杆控制手机鼠标
+========================================
+
+----------------------------------------
+一百一十四、USBFS HID键鼠模式实施(TEST_MODE=5)
+----------------------------------------
+
+背景: USBHS Device在电脑上枚举失败(一百一十)，搁置。
+改用USBFS Device + HID复合设备方案，手机OTG做Host
+原生识别HID，无需App、无需AOA协议。
+
+实现:
+1. Phone/mode.h新建，TEST_MODE宏挪到公共头(供库文件
+   按模式条件编译)
+2. usb_desc.c条件编译: TEST_MODE=5时HID复合描述符
+   (配置59字节=键盘接口9+HID9+端点7+鼠标接口9+
+   HID9+端点7)，否则U盘描述符
+3. usb_desc.h加KeyRepDesc(62字节)/MouseRepDesc(52字节)
+   声明和长度宏
+4. ch32v30x_usbfs_device.c条件编译:
+   - 端点: EP1_TX(键盘)+EP2_TX(鼠标) vs EP2_TX+EP3_RX(U盘)
+   - HID类请求: SET_IDLE/SET_PROTOCOL/GET_IDLE/
+     GET_PROTOCOL/SET_REPORT vs U盘GET_MAX_LUN/RESET
+   - GET_DESCRIPTOR: HID/报告描述符按接口索引返回
+   - CLEAR/SET_FEATURE和GET_STATUS端点号切换
+5. main.c TEST_MODE=5主逻辑: USBFS HID初始化+摇杆控制
+
+踩坑:
+- usb_desc.c的TAB_USB_FS_OSC_DESC引用sizeof(MyCfgDescr_HS)
+  但TEST_MODE=5时MyCfgDescr_HS未定义→链接错误
+  解决: TEST_MODE=5分支也定义MyCfgDescr_HS/FS(内容同
+  MyCfgDescr)
+- Common/Config.h已存在，我创建Phone/config.h重名冲突
+  →删除Phone/config.h，把新引脚定义加到Common/Config.h
+
+意义: 手机OTG原生识别HID键鼠，不需要装App、不需要
+AOA协商，插上线就能用。为后续吹气命令→HID报告铺路。
+
+----------------------------------------
+一百一十五、BOARD_V3新板子版本 + ADS1115驱动 + 摇杆驱动
+----------------------------------------
+
+背景: 用户更新了电路.txt，新板子(BOARD_V3)增加了
+ADS1115 16位I2C ADC和摇杆(YTMR-YG13-006)。
+
+电路拓扑(从电路.txt提取):
+- ADS1115(U9): SCL=PB10 SDA=PB11 ALERT=PE15
+  AIN0=压差传感器2 AIN1=压差传感器1
+  AIN2=摇杆X AIN3=摇杆Y
+- 摇杆(U17): X→AIN2 Y→AIN3 按键S2→PE14(上拉10kΩ)
+- 压差传感器(未到位): 传感器1→运放→PB0/ADC8
+  传感器2→运放→PB1/ADC9
+- OLED: V1 CS=PB0, V3 CS=PA6 (其他引脚相同)
+
+实现:
+1. Common/Config.h添加BOARD_V3版本选择
+   - OLED CS条件编译(V1=PB0, V3=PA6)
+   - ADS1115/摇杆/压差引脚定义
+2. ads1115.h/c: 软件I2C驱动(hal_gpio控制SCL/SDA)
+   - 开漏输出模式，Hal_GPIO_Read直接读IDR
+   - WriteReg/ReadReg/ReadChannel(单次转换±6.144V 128SPS)
+3. joystick.h/c: 摇杆驱动
+   - GetX/GetY通过ADS1115读AIN2/AIN3
+   - GetButton读PE14
+
+踩坑:
+- ADS1115首次读取返回0(芯片未就绪)→校准中点=0→
+  鼠标一直向右飘
+  解决: 校准前加100ms延迟+dummy读取，校准时过滤
+  1000~16000范围外的异常值
+- 软件I2C每次操作都调Hal_GPIO_Init重新配置引脚模式→
+  太慢且时序错误
+  解决: 初始化时配好开漏输出，之后只Set/Reset
+
+意义: 摇杆经ADS1115高精度ADC读取，比片内ADC精度高
+(16位vs12位)，且不占用MCU ADC资源。
+
+----------------------------------------
+一百一十六、摇杆控制手机鼠标(已验证可用)
+----------------------------------------
+
+实现:
+1. main.c TEST_MODE=5主逻辑:
+   - Joystick_Init + USBFS HID初始化
+   - 校准: 32次采样取平均(过滤异常值)
+   - 主循环每50ms读摇杆X/Y，减中点得偏移量
+   - 死区±500过滤，除128映射到鼠标速度，限幅±64
+   - 摇杆按键(PE14)映射为鼠标左键
+   - EP2发送HID鼠标报告[buttons,X,Y,wheel]
+2. Y轴反向(my=-y_off/128)适配摇杆安装方向
+3. XY轴顺时针旋转90°(mx=-y_off, my=-x_off)适配
+   摇杆安装角度
+
+验证: 手机OTG识别HID鼠标，摇杆控制鼠标移动稳定，
+居中不飘移，按下摇杆=左键。
+
+----------------------------------------
+一百一十七、编译警告消除
+----------------------------------------
+
+修复:
+1. aoa_host.c: s_bulk_in_tog/s_bulk_out_tog从uint16_t
+   改为uint8_t(匹配USBHSH_SendEndpData/GetEndpData
+   的pendp_tog参数类型)
+2. mic_hum.c: cmd_name函数加__attribute__((unused))
+   (属性须放在declarator前: static __attribute__((unused)))
+3. phone_control.c: 删除未使用的wave_a[128]/wave_b[128]/
+   wave_head变量
+
+结果: 编译无错误无警告，text=24508 data=392 bss=9448
+
+----------------------------------------
+三、文件清单
+----------------------------------------
+
+新增文件:
+  - Phone/mode.h           : TEST_MODE宏定义(公共头)
+  - Phone/ads1115.h/c      : ADS1115软件I2C驱动
+  - Phone/joystick.h/c     : 摇杆驱动(依赖ADS1115)
+
+修改文件:
+  - Common/Config.h        : BOARD_V3+ADS1115/摇杆/压差引脚定义
+  - Phone/usb_desc.h/c     : 条件编译HID/U盘描述符
+  - Phone/ch32v30x_usbfs_device.c : 条件编译HID/U盘端点/类请求
+  - Phone/aoa_host.c       : tog变量类型修复
+  - Phone/mic_hum.c        : cmd_name unused属性
+  - Phone/phone_control.c  : 删除未用变量
+  - User/main.c            : TEST_MODE=5摇杆控制鼠标
+  - obj/Phone/subdir.mk    : 添加ads1115.c/joystick.c
+
+======================================
+   第三十二轮更新 (2026-10-11)
+   USBFS MSC U盘迁移 + 格式化修复 + FAT文件读取
+========================================
+
+========================================
+  第二轮更新 (2026-08-21)
+  学习播放键 + 权限流程 + 无障碍事件
+========================================
+
+----------------------------------------
+三、学习播放键功能
+----------------------------------------
+
+【坑6: 学习键不自动打开目标应用】
+
+现象: 点学习键只提示"请打开XX点播放键"，用户需手动打开
+
+解决: startLearnCurrent()中自动调用startActivity(launch)打开目标应用，
+      Toast提示"已打开XX，请点击播放键"
+
+----------------------------------------
+
+【坑7: 学习完成无反馈】
+
+现象: 用户点击播放键后，学习静默完成，没有任何提示
+
+解决: VoiceAccessibilityService中加静态标志位sLearningCompleted，
+      学习完成时Toast提示"学习完成！正在返回..."，
+      并自动startActivity带回MainActivity。
+      MainActivity.onResume()调consumeLearningResult()显示"XX学习完成！"
+
+----------------------------------------
+
+【坑8: 无障碍服务收不到事件 — packageNames限制】★
+
+现象: 点击学习键能打开目标应用，但点击播放键完全无反应
+
+根因: accessibility_service_config.xml中android:packageNames只列了8个
+      预定义应用。如果目标应用不在这个列表里，无障碍服务根本收不到
+      它的事件。即使在这列表里，子Activity的包名可能不同。
+
+解决: 去掉android:packageNames属性，让无障碍服务接收所有应用的事件。
+      注意: 安装新APK后必须关闭再重新开启无障碍服务才生效。
+
+----------------------------------------
+
+【坑9: 去掉包名匹配后误判学习完成】
+
+现象: 去掉packageNames和包名匹配后，点学习键立刻提示"学习完成"，
+      明明还没打开目标应用
+
+根因: 用户点击VoiceControl自己的"学习"按钮时，无障碍服务收到了
+      TYPE_VIEW_CLICKED事件，包名是com.voice.control。因为去掉了
+      包名匹配，这个点击被误判为学习完成。
+
+解决:
+  1. 排除自己包名: if (pkg.equals(myPkg)) return;
+  2. 恢复包名匹配(宽松版): pkg.equals(learnPkg) ||
+     pkg.startsWith(learnPkg + ".") || learnPkg.startsWith(pkg + ".")
+  3. startLearning加2秒延迟，等目标应用打开后再开始监听
+
+----------------------------------------
+
+【坑10: TYPE_VIEW_CLICKED事件不产生】★最关键
+
+现象: 能打开目标应用，包名匹配也对了，但点击播放键还是识别不到
+
+根因: 某些应用的播放按钮不产生TYPE_VIEW_CLICKED事件。可能原因:
+      - 应用使用WebView(网页UI)
+      - 应用使用Jetpack Compose
+      - 应用使用自定义触摸处理
+      原来的代码只处理TYPE_VIEW_CLICKED，其他事件全部return。
+
+解决: 彻底放宽学习模式的事件处理:
+  1. 去掉事件类型限制 — 任何事件类型都触发学习完成
+  2. 去掉包名匹配 — 任何应用的事件都接受(只排除自己)
+  3. event.getSource()为null时用getRootInActiveWindow()兜底
+  4. 用Toast显示每个收到的事件(type+pkg)，替代logcat
+     (因为USB被AOA占用，无法用adb logcat看日志)
+
+关键: 学习模式下用户被明确告知"请点击播放键"，所以用户点击的
+任何东西都应该被当作播放键。不需要限制事件类型或包名。
+
+----------------------------------------
+
+【坑11: USB被AOA占用无法看logcat】
+
+现象: 手机USB口连着MCU板子做AOA通信，无法同时用adb logcat看日志
+
+解决: 在onAccessibilityEvent里用Toast.makeText直接在屏幕上显示
+      事件信息(type, pkg, text, desc)，不需要logcat。
+
+----------------------------------------
+
+四、悬浮窗权限流程
+----------------------------------------
+
+【坑12: 悬浮窗权限和无障碍同时弹】
+
+现象: 之前checkPermissions同时检查无障碍和悬浮窗，一起弹对话框
+
+用户要求: 设置完无障碍服务回来后再弹悬浮窗权限
+
+解决:
+  1. checkPermissions()改为先查无障碍，无障碍已开再查悬浮窗
+  2. onResume()调checkPermissions()
+  3. 流程: onCreate弹无障碍 → 用户去设置 → 返回onResume → 弹悬浮窗
+
+----------------------------------------
+五、最终学习流程
+----------------------------------------
+
+1. 用户在VoiceControl选中目标应用
+2. 点击"学习"按钮
+3. checkPermissions确认无障碍已开启
+4. startLearning(pkg) → 2秒延迟后开始监听
+5. startActivity自动打开目标应用
+6. Toast提示"已打开XX，请点击播放键"
+7. 用户在目标应用中点击播放按钮
+8. 无障碍服务收到事件 → Toast显示事件信息
+9. 保存按钮特征(text/desc/viewId)到SharedPreferences
+10. Toast提示"学习完成"
+11. 自动返回VoiceControl → 显示"XX学习完成！"
+12. 之后PLAY命令会用保存的特征找到并点击播放按钮
+
+----------------------------------------
+六、本轮文件改动
+----------------------------------------
+
+  - accessibility_service_config.xml : 去掉packageNames限制
+  - VoiceAccessibilityService.java :
+      * startLearning加2秒延迟
+      * onAccessibilityEvent去掉事件类型和包名限制
+      * 用Toast显示事件信息(替代logcat)
+      * 学习完成自动返回MainActivity
+      * consumeLearningResult()静态方法
+  - MainActivity.java :
+      * startLearnCurrent自动打开目标应用
+      * checkPermissions分步弹窗(先无障碍后悬浮窗)
+      * onResume检查学习结果+权限
+  - 更新记录.txt : 本文件
+
+
+----------------------------------------
+一、Android端改动
+----------------------------------------
+
+1. 以同事版本为基础，命令改为二进制单字节协议
+   - UsbAccessoryManager: readLoop读取单字节，Callback改成onCommandReceived(int)
+   - MainActivity: 命令映射 2=ENTER 3=BACK 4=PLAY 5=NEXT 6=PREV
+
+2. USB兼容性修复 (targetSdk 34)
+   - registerReceiver加 RECEIVER_EXPORTED (Android 13+必需)
+   - PendingIntent加 FLAG_MUTABLE (Android 12+必需)
+
+3. UI改造
+   - 分类标签: 全部/音乐/视频/小说/适配
+   - HorizontalScrollView动态显示已安装应用图标
+   - 添加应用按钮(勾选框多选)
+   - 去掉连接按钮，onCreate自动启动USB连接
+
+4. 无障碍服务检测改用双判断
+   - Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES 检测
+   - VoiceAccessibilityService.isAvailable() 检测
+
+5. 构建配置
+   - AGP 8.7.3, Gradle 8.11.1, 腾讯云镜像
+   - overridePathCheck=true, compileSdk 34, minSdk 28
+
+----------------------------------------
+二、MCU端改动 (aoa_host.c / phone_control.c)
+----------------------------------------
+
+【坑1: 强制端口复位打断AOA切换】
+
+现象: START_ACCESSORY发送成功(err=0)，但手机重新枚举为Mass Storage
+      (class=0x08 sub=0x06)而不是AOA设备(class=0xFF)
+
+根因: START_ACCESSORY后立即强制USB端口复位(PORT_CTRL reset)，
+      打断了手机的AOA模式切换过程。手机收到总线reset信号后
+      回到默认USB模式(Mass Storage)而不是AOA模式。
+
+解决: 去掉START_ACCESSORY后的强制端口复位，改为:
+      1. 等待手机自然断开(最多5秒)
+      2. 如果手机自然断开 → 等待AOA重枚举
+      3. 如果5秒没断开 → 硬端口复位作为兜底
+      4. 超时后也硬端口复位清除死锁状态
+
+关键日志对比:
+  修复前: START_ACCESSORY → 强制reset → VID=0x2D95 PID=0x6011 (Mass Storage)
+  修复后: START_ACCESSORY → 自然断开100ms → VID=0x18D1 PID=0x2D01 (AOA!)
+
+----------------------------------------
+
+【坑2: is_aoa_device枚举重试不重置】
+
+现象: 重连时枚举到非AOA设备(VID=0x2D95 PID=0x6011 Mass Storage)，
+      但代码误判为AOA设备，打印"AOA Mode Ready!"
+
+根因: AOA_Enumerate()中 *is_aoa_device=0 在 ENUM_RETRY 标签之前。
+      第一次枚举尝试发现AOA设备(VID=0x18D1)设置了 *is_aoa_device=1，
+      但枚举失败后 goto ENUM_RETRY 重试，此时 *is_aoa_device 仍为1。
+      第三次重试枚举到非AOA设备，但 *is_aoa_device 没有被重置为0。
+
+解决: 将 *is_aoa_device=0 移到 ENUM_RETRY 标签之后，每次重试都重置。
+
+----------------------------------------
+
+【坑3: 软复位(开关SOF)无效】
+
+现象: 手机不自然断开时，尝试软复位(禁用SOF→延时→启用SOF)，
+      但PORT卡在0x00000001(bit0=连接, bit1=未使能)，30秒超时
+
+根因: 软复位只是开关SOF生成，不产生USB总线reset信号。
+      手机完全无感知，不会重新枚举。PORT死锁在连接但未使能状态。
+
+解决: 用硬端口复位(PORT_CTRL reset)代替软复位。
+      硬复位产生USB总线reset信号，强制手机重新枚举。
+      同时超时后也硬端口复位清除死锁。
+
+----------------------------------------
+
+【坑4: keepalive导致循环断连】★最关键的坑
+
+现象: AOA连接成功后，端口在5秒内持续掉线，反复重连，手机重复弹窗
+
+根因: 添加了keepalive机制(每秒发0x00字节保活)，但在App还没打开
+      USB accessory时，bulk OUT端点未就绪，TX失败(error 42)。
+      3次重试失败后代码强制设 s_aoa_state=DISCONNECTED →
+      触发自动重连 → 重连过程端口复位 → 再次连接 →
+      App还没打开 → keepalive又失败 → 循环
+
+关键: 用户指出"加入自动重连之前连接是稳定的，能发命令"，
+      说明连接本身没问题，是keepalive+TX失败断连导致的循环。
+
+解决:
+  1. 完全删除keepalive机制(不需要，连接本身是稳定的)
+  2. AOA_Host_Send()中TX失败3次后只返回错误码，
+     不设 s_aoa_state=DISCONNECTED (TX失败≠断线)
+  3. 恢复简单等待: AOA就绪后等3秒让App打开accessory
+  4. 只有端口物理断开(port enable bit清零持续150ms)才触发重连
+
+----------------------------------------
+
+【坑5: 端口掉线检测过于敏感】
+
+现象: USB信号短暂波动导致port enable bit瞬间清零，误判为断线
+
+解决: AOA_Host_Poll()加三级防抖:
+      检测到port disable → 等50ms再查 → 等100ms再查 → 三次都disable才断连
+
+----------------------------------------
+
+【最终AOA连接流程】
+
+1. MCU初始化USB Host，等待手机插入
+2. 手机以普通模式连接 (VID=0x2D95 PID=0x6013)
+3. 发GET_PROTOCOL → 手机返回2(支持AOA)
+4. 发SEND_STRING(厂商/型号/版本/描述)
+5. 发START_ACCESSORY
+6. 等待手机自然断开(5秒超时)
+   - 断开 → 等待AOA重枚举
+   - 没断开 → 硬端口复位 → 等待重枚举
+7. 等待AOA重枚举(30秒超时)
+   - AOA设备(VID=0x18D1) → 成功
+   - 非AOA但支持AOA → 重新发START_ACCESSORY
+   - 超时 → 硬端口复位 → 从头重试
+8. AOA就绪，等3秒让App打开accessory
+9. 进入命令循环，等待串口命令转发
+
+【自动重连策略】
+- 端口物理断开(防抖150ms) → 5秒冷却 → 自动重连
+- 重连失败 → 3秒后重试
+- TX失败 → 只返回错误，不断连
+- 重连时如手机已在AOA模式 → 直接使用，不重新协商
+
+----------------------------------------
+三、文件清单
+----------------------------------------
+
+MCU固件 (D:\Libraries\Projects\VOICE\EXAM\GPIO\VOICE\V3F\Phone\):
+  - aoa_host.c    : AOA协议实现(连接/断连/收发/轮询)
+  - aoa_host.h    : AOA接口定义
+  - phone_control.c : 命令处理+自动重连+串口菜单
+
+Android App (D:\Libraries\Projects\VOICE\voice_control\):
+  - MainActivity.java : 主界面+应用列表+命令处理
+  - UsbAccessoryManager.java : USB AOA accessory端管理
+  - VoiceAccessibilityService.java : 无障碍服务(适配类应用控制)
+  - AndroidManifest.xml : USB accessory intent filter
+  - accessory_filter.xml : AOA厂商/型号匹配
+  - accessibility_service_config.xml : 无障碍服务配置
+

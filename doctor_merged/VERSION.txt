@@ -1,0 +1,42 @@
+NeuroWave 医生端 版本更新日志
+================================
+
+v0.4.0 (2026-07-06)
+- TrainingFragment重命名为SsvepTrainingFragment, 明确SSVEP训练
+- 新增MiTrainingFragment: 运动想象训练(想象左手/右手)
+- 页面列表: 脑电监测/专注度/波形对比/频谱对比/SSVEP训练/MI训练/方向识别
+- FocusChartView: Y轴固定0-100, 步长5画刻度线+标注, 去掉标签数/Y范围选项
+- 新增SsvepDetector: FFT频谱分析+CCA典型相关分析, 支持8Hz/12Hz检测
+- SsvepDetector: FFT基2蝶形运算, CCA参考信号3次谐波, detectByFft/detectByCca
+
+v0.3.0 (2026-07-06)
+- TrainingFragment: MI范式→SSVEP范式(视觉闪烁刺激,左8Hz/右12Hz)
+- 训练时序: 本地计时→下位机TASK,DONE信号驱动
+- DataListener: 新增5个训练协议回调(onTaskStart/onTaskDone/onReadyTrain/onReadyTest/onModeSetOk)
+- DataDispatcher/TcpServerManager: 同步扩展协议解析和post方法
+- CommandSender: sendCommand改为public, 新增sendPage()
+- WaveformView: 修复波形压缩(数据不足时右对齐), X轴刻度1位小数
+- FocusChartView: Y轴标签改为百分比显示
+- FocusHistoryFragment: 默认3标签
+- SettingsStore: SharedPreferences持久化波形/频谱/专注度设置
+- Fragment生命周期: onPause→removeListener改为onDestroyView→removeListener(后台持续刷新)
+- 新增41006端口(Doctor-to-Patient命令通道)
+- 切换页面时自动发送PAGE,N命令给患者端
+
+v0.2.0 (2026-07-05)
+- FrameParser文本行协议解析(DIRCSV/RESULT/IPCDIAG/DIRCFG)
+- 医生端向患者端转发数据(41004)和接收命令(41005)
+- CommandSender下行命令发送器(MODE/SET/TRIAL)
+- EegFrame/InferenceResult/IpcDiagInfo数据模型
+- 应用名NeuroWave医生,包名com.nihilisttt.eegdoctor
+
+v0.1.0 (2026-07-04)
+- 初始项目创建
+- TCP Server 41002-41005端口
+- 双通道波形+频谱+专注度显示
+- MonitorFragment/MainFragment双页面
+
+v0.9.0-merged (2026-07-17)
+- 以新版 doctor 为主体，迁入 legacy SSVEP 模式一完整控制界面、FBCCA 分析链与 41006 双向控制协议
+- 41004 保持纯数据通道；41006 增加握手、心跳、重连和页面/SSVEP 状态快照
+- 新增 MI/SSVEP 训练模式协调器，切换页面时互斥停止分析线程、计时器和设备训练状态
