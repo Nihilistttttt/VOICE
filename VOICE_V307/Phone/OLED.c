@@ -1,9 +1,9 @@
 #include <string.h>
 #include "ch32v30x.h"
+#include "OLED.h"
 #include "Config.h"
 #include "hal_gpio.h"
 #include "OLED_Font.h"
-#include "OLED.h"
 #include "debug.h"
 
 #define OLED_W_CS(x)   Hal_GPIO_Write(OLED_CS_PIN_ENC, (x))
@@ -16,11 +16,11 @@ static void OLED_SPI_Init(void)
 {
     AFIO_ClockEnable();
     SPI_ClockEnable(OLED_SPI_INSTANCE);
-    GPIO_ClockEnable(HAL_GPIO_PORT(OLED_CS_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(OLED_RES_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(OLED_DC_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(OLED_SCK_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(OLED_MOSI_PIN_ENC));
+    GPIO_ClockEnable(OLED_CS_PORT);
+    GPIO_ClockEnable(OLED_RES_PORT);
+    GPIO_ClockEnable(OLED_DC_PORT);
+    GPIO_ClockEnable(OLED_SCK_PORT);
+    GPIO_ClockEnable(OLED_MOSI_PORT);
 
     Hal_GPIO_Init(OLED_CS_PIN_ENC,  HAL_GPIO_MODE_OUTPUT_PP, HAL_GPIO_SPEED_HIGH, 0);
     Hal_GPIO_Init(OLED_RES_PIN_ENC, HAL_GPIO_MODE_OUTPUT_PP, HAL_GPIO_SPEED_HIGH, 0);

@@ -2,6 +2,8 @@
 #include "Config.h"
 #include "debug.h"
 
+#if USE_ADS1115
+
 static void I2C_Delay(void)
 {
     Delay_Us(5);
@@ -92,9 +94,9 @@ static uint8_t I2C_ReadByte(uint8_t ack)
 
 void ADS1115_Init(void)
 {
-    GPIO_ClockEnable(HAL_GPIO_PORT(ADS1115_SCL_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(ADS1115_SDA_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(ADS1115_ALERT_PIN_ENC));
+    GPIO_ClockEnable(ADS1115_SCL_PORT);
+    GPIO_ClockEnable(ADS1115_SDA_PORT);
+    GPIO_ClockEnable(ADS1115_ALERT_PORT);
 
     Hal_GPIO_Init(ADS1115_SCL_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
     Hal_GPIO_Init(ADS1115_SDA_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
@@ -162,3 +164,4 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
 
     return (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
 }
+#endif /* USE_ADS1115 */

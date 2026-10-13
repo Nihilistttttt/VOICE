@@ -23,19 +23,12 @@ int main(void)
     printf("ChipID:%08x\r\n", DBGMCU_GetCHIPID());
     Delay_Ms(500);
 
-    /* PB5 = PWR_CTRL：拉高 = 给手机供电。
-     * ★ 这不是板载 LED —— 链路是 PB5 → R12(4.7k) → Q3(NPN) → Q2(P-MOS) → VPHONE。
-     *   真正的板载 LED 在 PB8（经 R52）。依据：hardware/电路.txt 网表。 */
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1 | RCC_APB2Periph_GPIOB, ENABLE);
-    {
-        GPIO_InitTypeDef GPIO_InitStructure;
-
-        GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_5;
-        GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-        GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_Out_PP;
-        GPIO_Init(GPIOB, &GPIO_InitStructure);
-        GPIO_SetBits(GPIOB, GPIO_Pin_5);
-    }
+    /* PB5 = AOA_PWR：拉高给手机供电（V3 独有，链路见 Config.h） */
+#if USE_AOA_PWR
+    GPIO_ClockEnable(AOA_PWR_PORT);
+    Hal_GPIO_Init(AOA_PWR_PIN_ENC, HAL_GPIO_MODE_OUTPUT_PP, HAL_GPIO_SPEED_HIGH, 0);
+    Hal_GPIO_Set(AOA_PWR_PIN_ENC);
+#endif
 
 #if TEST_MODE == 0
     Mode_PhoneControl();     /* 正式功能：吹气采集 + USB AOA 手机控制 */

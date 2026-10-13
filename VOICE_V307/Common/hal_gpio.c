@@ -6,14 +6,23 @@ static GPIO_TypeDef *const s_gpio_ports[] = {
 };
 #define NUM_PORTS (sizeof(s_gpio_ports) / sizeof(s_gpio_ports[0]))
 
+static const uint32_t s_gpio_rcc[] = {
+    RCC_APB2Periph_GPIOA, RCC_APB2Periph_GPIOB, RCC_APB2Periph_GPIOC,
+    RCC_APB2Periph_GPIOD, RCC_APB2Periph_GPIOE
+};
+
 static void (*s_exti_callback[16])(void) = {NULL};
 
 static inline uint8_t get_pin_num(uint32_t enc) { return (uint8_t)(enc & 0xFFFF); }
 static inline uint8_t get_port_idx(uint32_t enc) { return (uint8_t)((enc >> 16) & 0xFF); }
 
-/* ---- 外设时钟使能 ------------------------------------------------------
- * 四个包装函数已移到 hal_clock.c（统一外设时钟层），本文件只保留 GPIO 操作。
- * hal_gpio.h include hal_clock.h 转发声明，调用方不需要改 include。 */
+/* ---- GPIO 端口时钟使能 ------------------------------------------------- */
+void GPIO_ClockEnable(uint8_t port_index)
+{
+    if (port_index < NUM_PORTS) {
+        RCC_APB2PeriphClockCmd(s_gpio_rcc[port_index], ENABLE);
+    }
+}
 
 void Hal_GPIO_Init(uint32_t pin_enc, Hal_GPIO_Mode_t mode,
                    Hal_GPIO_Speed_t speed, uint8_t af_num)

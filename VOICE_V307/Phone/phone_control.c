@@ -1,4 +1,5 @@
 #include "phone_control.h"
+#include "Config.h"
 #include "aoa_host.h"
 #include "mic_hum.h"
 #include "OLED.h"
@@ -159,8 +160,10 @@ void Phone_Control_Init(void)
     OLED_ShowString(2, 0, "USB Waiting...");
     OLED_Refresh();
 
+#if USE_MIC_HUM
     printf("[MIC] Init INMP441...\r\n");
     Mic_Hum_Init();
+#endif
 
     AOA_Host_Init();
     printf("[AOA] Auto-connecting...\r\n");
@@ -226,7 +229,11 @@ void Phone_Control_Poll(void)
 
     /* 吹气指令处理 */
     uint16_t mean_a = 0, mean_b = 0;
+#if USE_MIC_HUM
     int hum_cmd = Mic_Hum_Poll(&mean_a, &mean_b);
+#else
+    /* V3: 压差传感器采集，后续实现 */
+#endif
 
     OLED_UpdateDisplay(mean_a, mean_b);
 
@@ -265,6 +272,7 @@ void Phone_Control_Poll(void)
                     param_parse_state = 3;
                 } else {
                     uint16_t val = ((uint16_t)param_vH << 8) | b;
+#if USE_MIC_HUM
                     switch (param_id) {
                     case 0: g_blow_threshold  = val; break;
                     case 1: g_short_max_tick  = val; break;
@@ -273,6 +281,7 @@ void Phone_Control_Poll(void)
                     case 4: g_mid_max_tick    = val; break;
                     case 5: g_min_gap_tick    = val; break;
                     }
+#endif
                     printf("[AOA] Param %d = %d\r\n", param_id, val);
                     param_parse_state = 0;
                 }
@@ -295,6 +304,7 @@ void Phone_Control_Poll(void)
     }
 
     /* 命令处理: 命令模式或采集模式下都处理 */
+#if USE_MIC_HUM
     if (hum_cmd != HUM_CMD_NONE) {
         if (collect_mode) {
             collect_mode = 0;
@@ -332,6 +342,7 @@ void Phone_Control_Poll(void)
             }
         }
     }
+#endif
 
     AOA_Host_Poll();
 }

@@ -3,11 +3,13 @@
 #include "Config.h"
 #include "debug.h"
 
+#if USE_JOYSTICK
+
 void Joystick_Init(void)
 {
     ADS1115_Init();
 
-    GPIO_ClockEnable(HAL_GPIO_PORT(JOYSTICK_KEY_PIN_ENC));
+    GPIO_ClockEnable(JOYSTICK_KEY_PORT);
     Hal_GPIO_Init(JOYSTICK_KEY_PIN_ENC, HAL_GPIO_MODE_INPUT_PU, HAL_GPIO_SPEED_HIGH, 0);
 }
 
@@ -32,3 +34,4 @@ void Joystick_Read(int16_t *x, int16_t *y, uint8_t *btn)
     if (y) *y = Joystick_GetY();
     if (btn) *btn = Joystick_GetButton();
 }
+#endif /* USE_JOYSTICK */

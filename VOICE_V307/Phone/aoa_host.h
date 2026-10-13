@@ -27,4 +27,10 @@ AOA_Err_t AOA_Host_Send(const uint8_t *data, uint16_t len);
 AOA_Err_t AOA_Host_Recv(uint8_t *buf, uint16_t buf_size, uint16_t *actual_len);
 void AOA_Host_Poll(void);
 
+/* 手机供电控制 (PB5 = AOA_PWR, V3 独有)：断联时可断电→延时→上电强制重置手机 USB 状态 */
+#if USE_AOA_PWR
+void AOA_PowerOn(void);
+void AOA_PowerOff(void);
+#endif /* USE_AOA_PWR */
+
 #endif

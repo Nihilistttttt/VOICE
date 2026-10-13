@@ -4,6 +4,8 @@
 #include "debug.h"
 #include "ch32v30x.h"
 
+#if USE_MIC_HUM
+
 /* 双 INMP441 麦克风采集 + 吹气检测 (CH32V307 版)
    麦克风A - I2S2_SPI_INSTANCE: WS=PB12 CK=PB13 SD=PB15  (V307 官方引脚)
             I2S2_DMA_CHANNEL (I2S2_SPI_INSTANCE_RX)
@@ -467,11 +469,11 @@ void Mic_Hum_Init(void)
     DMA_InitTypeDef  DMA_InitStructure  = {0};
 
     AFIO_ClockEnable();
-    GPIO_ClockEnable(HAL_GPIO_PORT(I2S2_WS_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(I2S2_SD_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(I2S3_WS_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(I2S3_CK_PIN_ENC));
-    GPIO_ClockEnable(HAL_GPIO_PORT(I2S3_SD_PIN_ENC));
+    GPIO_ClockEnable(I2S2_WS_PORT);
+    GPIO_ClockEnable(I2S2_SD_PORT);
+    GPIO_ClockEnable(I2S3_WS_PORT);
+    GPIO_ClockEnable(I2S3_CK_PORT);
+    GPIO_ClockEnable(I2S3_SD_PORT);
     SPI_ClockEnable(I2S2_SPI_INSTANCE);
     SPI_ClockEnable(I2S3_SPI_INSTANCE);
     DMA_ClockEnable(DMA1);
@@ -687,3 +689,4 @@ void Mic_Hum_TestLoop(void)
         }
     }
 }
+#endif /* USE_MIC_HUM */

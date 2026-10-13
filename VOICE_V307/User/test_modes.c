@@ -258,6 +258,7 @@ void Mode_UsbhsEnum(void)
 #if TEST_MODE == 5
 void Mode_HidMouse(void)
 {
+#if USE_JOYSTICK
     int32_t x_sum = 0, y_sum = 0;
     int     x_n = 0, y_n = 0;
     int32_t x_mid, y_mid;
@@ -323,6 +324,7 @@ void Mode_HidMouse(void)
             printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
         }
     }
+#endif /* BOARD_V3 */
 }
 #endif
 

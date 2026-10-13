@@ -11,6 +11,109 @@
 - 命令: 2=ENTER 3=BACK 4=PLAY 5=NEXT 6=PREV (单字节二进制)
 
 =======================================
+   第三十三轮更新 (2026-10-13)
+   修复损坏的git对象库 + 项目目录重整 + 配置体系重构
+================================
+
+----------------------------------------
+一百一十二、修复损坏的git对象库(方案A: 重建索引)
+----------------------------------------
+
+背景: git fsck --full 报 1018个blob/280个tree/9个commit缺失,
+索引里6705个文件有2188个blob不存在, 且零packfile。
+git status/diff/checkout全部不可用 —— checkout会先删工作区文件再报错,
+已因此丢失8个文件(后经patch与官方例程库全部补回)。
+
+根因推测: 目录在云同步工具管辖内, 同步按另一端版本覆盖删除了
+.git/objects里的文件(1755个对象mtime集中在10-12 12:00)。
+
+实施(方案A): git rm -r --cached . → git add -A → git commit,
+清空索引后从工作区完整重建, 把所有缺失blob重新写入。
+旧提交历史保留(34个提交对象仍可读, 9个老commit永久缺失)。
+
+验证: git status/diff/checkout恢复正常; 编译通过。
+
+踩坑: 批量checkout/reset前必须先git fsck --full ——
+对象缺失时checkout会先删工作区文件再报unable to read sha1 file,
+静默造成丢失(8个文件就是这么丢的)。
+
+----------------------------------------
+一百一十三、项目目录重整(623→110 MB, 顶层条目28→11)
+----------------------------------------
+
+背景: 仓库6713个跟踪文件里6301个(94%)是WCH官方例程库;
+工作区623 MB里只有50 MB是本项目自己的东西。
+
+实施:
+1. 删可再生产物: .codegraph(189M代码索引,工具可重建)、
+   voice/(29M,经diff验证是voice_control的完整副本)、各build/ .gradle/
+2. 移出仓库(原文件保留在_local/, gitignore整体排除不上传):
+   EXAM/ V307_EXAM/ CH37X_ANDROID/ → _local/refs/
+   doctor_merged/ screen-projection-master/ → _local/other/
+   TEST-INMP441-DOUBLE/ I2S_INMP441_TEST/ → _local/archive/
+3. 根目录收拢: PUB/+电路.txt→hardware/ ; 架构文档→docs/design/ ;
+   记录文件→docs/log/ ; 芯片资料→docs/ref/
+4. 新增README.md(怎么编译/怎么烧/两端怎么配合)
+   与ARCHITECTURE.md(一页纸说清分层与USB AOA协议)
+
+踩坑: 移动目录前没先问用户放置位置, 擅自放到项目外
+(D:/Libraries/Refs等)被纠正 —— 应留在项目内+gitignore,
+"移出项目"是用户才会做的决定。
+
+结果: 顶层条目28→11, 跟踪文件6713→262, 固件二进制逐字节未变。
+
+----------------------------------------
+一百一十四、配置体系重构: 板级×特性两层模型
+----------------------------------------
+
+背景: BOARD_V2(麦克风板)/BOARD_V3(压差板)的差异原来用
+#ifdef BOARD_Vx散落在8个文件12处; V2/V3的OLED引脚块各16行
+只有CS不同(V2=PB0 V3=PA6), 加新板型要整段复制。
+
+模型(参考Zephyr的BOARD_defconfig+prj.conf覆盖、preOBD三前缀):
+  第1层 BOARD_HAS_X  这块板接了什么(网表事实, 有=1没有=0都写出来)
+  第2层 USE_X        这次构建编不编(默认跟随第1层)
+  第3层 引脚宏       相同的脚定义一次, 只有真正不同的按板分支
+  一致性: USE_X=1 而 BOARD_HAS_X=0 → #error(板上没有的编不出来)
+
+实测: V3上把USE_MIC_HUM强开成1, 编译立即报中文#error指明原因;
+换板子时哪些开关要跟着改, 编译器直接点名。
+
+同时: OLED块去重(RES/DC/SCK/MOSI两板相同只定义一次, 只有CS按板分支),
+省12行重复。
+
+----------------------------------------
+一百一十五、main.c拆分 + 板型裁剪落地
+----------------------------------------
+
+数据审计: 自研代码零死代码、重复定义极少(全工程9处裸时钟调用)。
+唯一真问题: main() 268行 —— 入口文件里装着6个模式的完整实现。
+
+实施:
+1. main.c拆分: 305→76行(启动准备+按TEST_MODE选模式),
+   六个模式的实现移入User/test_modes.c(每段#if自守卫)
+2. 板型裁剪: mic_hum.c包#if USE_MIC_HUM(V2才有麦克风);
+   ads1115.c/joystick.c包#if USE_ADS1115 / #if USE_JOYSTICK(V3独有);
+   Mode_HidMouse包#if USE_JOYSTICK
+3. PB5供电命名化: AOA_PWR_PIN_ENC宏 + AOA_PowerOn/PowerOff接口,
+   main.c从裸GPIO_InitTypeDef改用Hal_GPIO_Init
+4. hal_clock迭代: 先恢复统一时钟层, 后按用户与协作AI的结论
+   回到"GPIO时钟在hal_gpio.c, SPI/DMA/AFIO在Config.c"的分散布局
+   (V2板PB5一直上电无控制电路, BOARD_HAS_AOA_PWR按板声明0/1)
+
+踩坑:
+- 评估hal_clock时只算实现行数(115 vs 26), 没算调用点学到的知识
+  (SPI1在APB2/SPI3在APB1, 写错总线静默失效) —— 结论片面。
+- 对比ELF时拿MODE=5产物和MODE=2比, 得出错误的-400字节结论。
+  跨进程调make必须检查返回值; 对比ELF前先确认当前模式。
+
+验证: 六个TEST_MODE全部编译通过零警告;
+V3/mode2: 24976/320/6344(与重构前逐字节一致);
+V2/mode2: 25532/320/10464(含麦克风4K DMA缓冲);
+BOARD_V2/V3两个分支分别编译通过。
+
+
+=======================================
    第三十二轮更新 (2026-10-11)
    USBFS MSC U盘迁移 + 格式化修复 + FAT文件读取
 ================================

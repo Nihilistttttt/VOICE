@@ -1,8 +1,16 @@
 #include "aoa_host.h"
 #include "usb_host_config.h"
 #include "ch32v30x_usbhs_host.h"
+#include "Config.h"
+#include "hal_gpio.h"
 #include "debug.h"
 #include <string.h>
+
+/*---- 手机供电控制 (PB5 = AOA_PWR, V3 独有) -----------------------------*/
+#if USE_AOA_PWR
+void AOA_PowerOn(void)  { Hal_GPIO_Set(AOA_PWR_PIN_ENC); }
+void AOA_PowerOff(void) { Hal_GPIO_Reset(AOA_PWR_PIN_ENC); }
+#endif
 
 #define Serial_Dbg_Printf printf
 
