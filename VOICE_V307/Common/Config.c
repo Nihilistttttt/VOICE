@@ -13,6 +13,13 @@ void SPI_ClockEnable(SPI_TypeDef *SPIx)
     else if (SPIx == SPI3) RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI3, ENABLE);
 }
 
+void I2C_ClockEnable(I2C_TypeDef *I2Cx)
+{
+    /* ★ CH32V307 的 I2C1/I2C2 都挂在 APB1（与 STM32F103 的 I2C1 在 APB2 不同）*/
+    if      (I2Cx == I2C1) RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1, ENABLE);
+    else if (I2Cx == I2C2) RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C2, ENABLE);
+}
+
 void DMA_ClockEnable(DMA_TypeDef *DMAx)
 {
     if      (DMAx == DMA1) RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);

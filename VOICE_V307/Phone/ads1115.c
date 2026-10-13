@@ -4,16 +4,149 @@
 
 #if USE_ADS1115
 
-static void I2C_Delay(void)
+/*============================================================================
+ * 传输层 A/B 开关（Config.h 定义）
+ *   ADS1115_I2C_HARDWARE = 1  硬件 I2C2（PB10/PB11 默认映射）
+ *                          0  软件 bit-bang（同一组引脚，Delay_Us 掐时序）
+ *   两者 A/B 对比用于排查"脱机模式下全部读 0"的问题：
+ *   软件版在枚举模式下已实测能读到数据；硬件版尚未独立验证。
+ *
+ * ADS1115_DEBUG = 1 时，初始化/读写的每一步失败都会打串口（含行号），
+ * ReadChannel 会打印原始计数值 —— 用于定位失败发生在哪一步。
+ *============================================================================*/
+
+#if ADS1115_DEBUG
+#define ADS_DBG(...)   printf(__VA_ARGS__)
+#define ADS_FAIL()     printf("[ADS1115] op fail @line %d\r\n", __LINE__)
+#else
+#define ADS_DBG(...)
+#define ADS_FAIL()
+#endif
+
+/*---------------------------------------------------------------------------
+ * 传输层 A：硬件 I2C2
+ *---------------------------------------------------------------------------*/
+#if ADS1115_I2C_HARDWARE
+
+#define ADS1115_I2C_TIMEOUT    20000    /* 事件等待循环上限 */
+
+static uint8_t i2c_wait_event(uint32_t event)
 {
-    Delay_Us(5);
+    uint32_t t = ADS1115_I2C_TIMEOUT;
+    while (!I2C_CheckEvent(ADS1115_I2C, event)) {
+        if (--t == 0) return 1;
+    }
+    return 0;
 }
 
-static void I2C_SDA_High(void)  { Hal_GPIO_Set(ADS1115_SDA_PIN_ENC); }
-static void I2C_SDA_Low(void)   { Hal_GPIO_Reset(ADS1115_SDA_PIN_ENC); }
-static void I2C_SCL_High(void)  { Hal_GPIO_Set(ADS1115_SCL_PIN_ENC); }
-static void I2C_SCL_Low(void)   { Hal_GPIO_Reset(ADS1115_SCL_PIN_ENC); }
-static uint8_t I2C_SDA_Read(void) { return Hal_GPIO_Read(ADS1115_SDA_PIN_ENC); }
+static uint8_t i2c_wait_flag(uint32_t flag, FlagStatus state)
+{
+    uint32_t t = ADS1115_I2C_TIMEOUT;
+    while (I2C_GetFlagStatus(ADS1115_I2C, flag) == state) {
+        if (--t == 0) return 1;
+    }
+    return 0;
+}
+
+static void i2c_bus_release(void)
+{
+    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);
+    I2C_Cmd(ADS1115_I2C, ENABLE);   /* 读 SR1+写 CR1 顺带清 STOPF */
+}
+
+static void transport_init(void)
+{
+    /* 硬件 I2C 引脚 = 复用开漏（开漏 + 外部上拉 2.2k 构成总线）*/
+    Hal_GPIO_Init(ADS1115_SCL_PIN_ENC, HAL_GPIO_MODE_AF_OD, HAL_GPIO_SPEED_HIGH, 0);
+    Hal_GPIO_Init(ADS1115_SDA_PIN_ENC, HAL_GPIO_MODE_AF_OD, HAL_GPIO_SPEED_HIGH, 0);
+
+    I2C_ClockEnable(ADS1115_I2C_INSTANCE);
+
+    I2C_InitTypeDef I2C_InitStructure = {0};
+    I2C_InitStructure.I2C_ClockSpeed          = 100000;  /* 上拉 2.2k 支持 400k，稳定后可提速 */
+    I2C_InitStructure.I2C_Mode                = I2C_Mode_I2C;
+    I2C_InitStructure.I2C_DutyCycle           = I2C_DutyCycle_16_9;
+    I2C_InitStructure.I2C_OwnAddress1         = 0x00;
+    I2C_InitStructure.I2C_Ack                 = I2C_Ack_Enable;
+    I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+    I2C_Init(ADS1115_I2C_INSTANCE, &I2C_InitStructure);
+
+    I2C_Cmd(ADS1115_I2C, ENABLE);
+    ADS_DBG("[ADS1115] transport = hardware I2C2 @100kHz\r\n");
+}
+
+uint8_t ADS1115_WriteReg(uint8_t reg, uint16_t value)
+{
+    /* 写: START → 器件地址(W) → 寄存器指针 → 16 位数据(高在前) → STOP */
+    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 1; }
+
+    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
+    if (i2c_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED)) { ADS_FAIL(); i2c_bus_release(); return 1; }
+
+    I2C_SendData(ADS1115_I2C, reg);
+    if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
+
+    I2C_SendData(ADS1115_I2C, (uint8_t)(value >> 8));
+    if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
+
+    I2C_SendData(ADS1115_I2C, (uint8_t)(value & 0xFF));
+    if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 1; }
+
+    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);
+    I2C_Cmd(ADS1115_I2C, ENABLE);
+    return 0;
+}
+
+uint16_t ADS1115_ReadReg(uint8_t reg)
+{
+    uint8_t  hi, lo;
+
+    /* 先把寄存器指针写到器件（写事务）*/
+    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 0; }
+
+    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Transmitter);
+    if (i2c_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED)) { ADS_FAIL(); i2c_bus_release(); return 0; }
+
+    I2C_SendData(ADS1115_I2C, reg);
+    if (i2c_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED))          { ADS_FAIL(); i2c_bus_release(); return 0; }
+
+    /* 重复 START，转入读方向 */
+    I2C_GenerateSTART(ADS1115_I2C, ENABLE);
+    if (i2c_wait_event(I2C_EVENT_MASTER_MODE_SELECT))               { ADS_FAIL(); i2c_bus_release(); return 0; }
+
+    I2C_Send7bitAddress(ADS1115_I2C, ADS1115_I2C_ADDR << 1, I2C_Direction_Receiver);
+    if (i2c_wait_event(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED))    { ADS_FAIL(); i2c_bus_release(); return 0; }
+
+    /* 2 字节接收：收最后一字节前把 ACK 关掉（标准两字节序列）*/
+    I2C_AcknowledgeConfig(ADS1115_I2C, DISABLE);
+
+    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); i2c_bus_release(); I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE); return 0; }
+    hi = I2C_ReceiveData(ADS1115_I2C);
+
+    I2C_GenerateSTOP(ADS1115_I2C, ENABLE);   /* 读最后一字节前先编程 STOP */
+
+    if (i2c_wait_flag(I2C_FLAG_RXNE, RESET))                        { ADS_FAIL(); I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE); return 0; }
+    lo = I2C_ReceiveData(ADS1115_I2C);
+
+    I2C_AcknowledgeConfig(ADS1115_I2C, ENABLE);
+    I2C_Cmd(ADS1115_I2C, ENABLE);            /* 清 STOPF，为下次事务做准备 */
+
+    return (uint16_t)hi << 8 | lo;
+}
+
+/*---------------------------------------------------------------------------
+ * 传输层 B：软件 bit-bang（枚举模式下已实测能读到数据）
+ *---------------------------------------------------------------------------*/
+#else
+
+static void I2C_Delay(void)          { Delay_Us(5); }
+static void I2C_SDA_High(void)       { Hal_GPIO_Set(ADS1115_SDA_PIN_ENC); }
+static void I2C_SDA_Low(void)        { Hal_GPIO_Reset(ADS1115_SDA_PIN_ENC); }
+static void I2C_SCL_High(void)       { Hal_GPIO_Set(ADS1115_SCL_PIN_ENC); }
+static void I2C_SCL_Low(void)        { Hal_GPIO_Reset(ADS1115_SCL_PIN_ENC); }
+static uint8_t I2C_SDA_Read(void)    { return Hal_GPIO_Read(ADS1115_SDA_PIN_ENC); }
 
 static void I2C_Start(void)
 {
@@ -41,10 +174,7 @@ static uint8_t I2C_WriteByte(uint8_t data)
 
     for (i = 0; i < 8; i++)
     {
-        if (data & 0x80)
-            I2C_SDA_High();
-        else
-            I2C_SDA_Low();
+        if (data & 0x80) I2C_SDA_High(); else I2C_SDA_Low();
         data <<= 1;
         I2C_Delay();
         I2C_SCL_High();
@@ -73,16 +203,12 @@ static uint8_t I2C_ReadByte(uint8_t ack)
         I2C_SCL_High();
         I2C_Delay();
         data <<= 1;
-        if (I2C_SDA_Read())
-            data |= 1;
+        if (I2C_SDA_Read()) data |= 1;
         I2C_SCL_Low();
         I2C_Delay();
     }
 
-    if (ack)
-        I2C_SDA_Low();
-    else
-        I2C_SDA_High();
+    if (ack) I2C_SDA_Low(); else I2C_SDA_High();
     I2C_Delay();
     I2C_SCL_High();
     I2C_Delay();
@@ -92,27 +218,22 @@ static uint8_t I2C_ReadByte(uint8_t ack)
     return data;
 }
 
-void ADS1115_Init(void)
+static void transport_init(void)
 {
-    GPIO_ClockEnable(ADS1115_SCL_PORT);
-    GPIO_ClockEnable(ADS1115_SDA_PORT);
-    GPIO_ClockEnable(ADS1115_ALERT_PORT);
-
     Hal_GPIO_Init(ADS1115_SCL_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
     Hal_GPIO_Init(ADS1115_SDA_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
-    Hal_GPIO_Init(ADS1115_ALERT_PIN_ENC, HAL_GPIO_MODE_INPUT_PU, HAL_GPIO_SPEED_HIGH, 0);
-
     I2C_SCL_High();
     I2C_SDA_High();
+    ADS_DBG("[ADS1115] transport = software bit-bang\r\n");
 }
 
 uint8_t ADS1115_WriteReg(uint8_t reg, uint16_t value)
 {
     I2C_Start();
-    if (I2C_WriteByte(ADS1115_I2C_ADDR << 1)) { I2C_Stop(); return 1; }
-    if (I2C_WriteByte(reg)) { I2C_Stop(); return 1; }
-    if (I2C_WriteByte((uint8_t)(value >> 8))) { I2C_Stop(); return 1; }
-    if (I2C_WriteByte((uint8_t)(value & 0xFF))) { I2C_Stop(); return 1; }
+    if (I2C_WriteByte(ADS1115_I2C_ADDR << 1)) { I2C_Stop(); ADS_FAIL(); return 1; }
+    if (I2C_WriteByte(reg))                   { I2C_Stop(); ADS_FAIL(); return 1; }
+    if (I2C_WriteByte((uint8_t)(value >> 8))) { I2C_Stop(); ADS_FAIL(); return 1; }
+    if (I2C_WriteByte((uint8_t)(value & 0xFF))){ I2C_Stop(); ADS_FAIL(); return 1; }
     I2C_Stop();
     return 0;
 }
@@ -122,11 +243,11 @@ uint16_t ADS1115_ReadReg(uint8_t reg)
     uint16_t value;
 
     I2C_Start();
-    if (I2C_WriteByte(ADS1115_I2C_ADDR << 1)) { I2C_Stop(); return 0; }
-    if (I2C_WriteByte(reg)) { I2C_Stop(); return 0; }
+    if (I2C_WriteByte(ADS1115_I2C_ADDR << 1)) { I2C_Stop(); ADS_FAIL(); return 0; }
+    if (I2C_WriteByte(reg))                   { I2C_Stop(); ADS_FAIL(); return 0; }
 
     I2C_Start();
-    if (I2C_WriteByte((ADS1115_I2C_ADDR << 1) | 1)) { I2C_Stop(); return 0; }
+    if (I2C_WriteByte((ADS1115_I2C_ADDR << 1) | 1)) { I2C_Stop(); ADS_FAIL(); return 0; }
     value = (uint16_t)I2C_ReadByte(1) << 8;
     value |= I2C_ReadByte(0);
     I2C_Stop();
@@ -134,12 +255,28 @@ uint16_t ADS1115_ReadReg(uint8_t reg)
     return value;
 }
 
+#endif /* ADS1115_I2C_HARDWARE */
+
+/*============================================================================
+ * 协议层（与传输层无关，两种传输共用）
+ *============================================================================*/
+void ADS1115_Init(void)
+{
+    GPIO_ClockEnable(ADS1115_SCL_PORT);
+    GPIO_ClockEnable(ADS1115_SDA_PORT);
+    GPIO_ClockEnable(ADS1115_ALERT_PORT);
+
+    transport_init();
+
+    Hal_GPIO_Init(ADS1115_ALERT_PIN_ENC, HAL_GPIO_MODE_INPUT_PU, HAL_GPIO_SPEED_HIGH, 0);
+}
+
 int16_t ADS1115_ReadChannel(uint8_t channel)
 {
     uint16_t mux;
     uint16_t config;
     uint16_t cfg_read;
-
+    int16_t  raw;
 
     switch (channel)
     {
@@ -153,15 +290,27 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
     config = ADS1115_OS_START | mux | ADS1115_PGA_6_144V |
              ADS1115_MODE_SINGLE | ADS1115_DR_128SPS;
 
-    if (ADS1115_WriteReg(ADS1115_REG_CONFIG, config))
+    if (ADS1115_WriteReg(ADS1115_REG_CONFIG, config)) {
+        ADS_DBG("[ADS1115] ch%d: config write failed\r\n", channel);
         return 0;
+    }
 
     Delay_Ms(10);
 
     cfg_read = ADS1115_ReadReg(ADS1115_REG_CONFIG);
+    raw = (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
+
+#if ADS1115_DEBUG
+    if ((cfg_read & 0x8000) == 0)
+        ADS_DBG("[ADS1115] ch%d: OS bit=0 (not ready), cfg=%04X raw=%d\r\n",
+                channel, cfg_read, raw);
+    else
+        ADS_DBG("[ADS1115] ch%d: raw=%d\r\n", channel, raw);
+#endif
+
     if ((cfg_read & 0x8000) == 0)
         return 0;
 
-    return (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
+    return raw;
 }
 #endif /* USE_ADS1115 */

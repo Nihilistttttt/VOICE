@@ -36,6 +36,7 @@
 #elif TEST_MODE == 5
 #include "ch32v30x_usbfs_device.h"
 #include "joystick.h"
+#include "pressure.h"
 #elif TEST_MODE == 0
 #include "phone_control.h"
 #endif
@@ -287,6 +288,13 @@ void Mode_HidMouse(void)
     y_mid = (y_n > 0) ? y_sum / y_n : 8800;
     printf("Calibrated: Xmid=%ld Ymid=%ld (%d/%d samples)\r\n", x_mid, y_mid, x_n, y_n);
 
+#if USE_PRESSURE
+    /* 压差传感器与摇杆同走 ADS1115，借本模式一并验证 */
+    Pressure_Init();
+    printf("[Pressure] zero calibrating (keep ports idle)...\r\n");
+    Pressure_ZeroCalibrate(5);
+#endif
+
     while (1) {
         if (USBFS_DevEnumStatus) {
             Delay_Ms(50);
@@ -318,13 +326,29 @@ void Mode_HidMouse(void)
             if ((cnt % 20) == 0) {
                 printf("X=%d Y=%d mx=%d my=%d btn=%d\r\n",
                        x_raw, y_raw, mx, my, mouse_report[0]);
+#if USE_PRESSURE
+                printf("[Pressure] s1=%ld Pa  s2=%ld Pa\r\n",
+                       Pressure_ReadPa(PRESSURE_SENSOR_1),
+                       Pressure_ReadPa(PRESSURE_SENSOR_2));
+#endif
             }
         } else {
             Delay_Ms(200);
+#if HID_REQUIRE_PHONE
             printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
+#else
+            /* 脱机测试：不等枚举，没主机也持续读传感器打印 */
+            printf("X=%d Y=%d (standalone)", Joystick_GetX(), Joystick_GetY());
+#if USE_PRESSURE
+            printf("  s1=%ld Pa  s2=%ld Pa",
+                   Pressure_ReadPa(PRESSURE_SENSOR_1),
+                   Pressure_ReadPa(PRESSURE_SENSOR_2));
+#endif
+            printf("\r\n");
+#endif
         }
     }
-#endif /* BOARD_V3 */
+#endif /* USE_JOYSTICK */
 }
 #endif
 

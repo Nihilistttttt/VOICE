@@ -16,6 +16,7 @@ C_SRCS += \
 ../Phone/joystick.c \
 ../Phone/mic_hum.c \
 ../Phone/phone_control.c \
+../Phone/pressure.c \
 ../Phone/sdio_sd.c \
 ../Phone/sdio_test.c \
 ../Phone/sw_udisk.c \
@@ -34,6 +35,7 @@ C_DEPS += \
 ./Phone/joystick.d \
 ./Phone/mic_hum.d \
 ./Phone/phone_control.d \
+./Phone/pressure.d \
 ./Phone/sdio_sd.d \
 ./Phone/sdio_test.d \
 ./Phone/sw_udisk.d \
@@ -52,6 +54,7 @@ OBJS += \
 ./Phone/joystick.o \
 ./Phone/mic_hum.o \
 ./Phone/phone_control.o \
+./Phone/pressure.o \
 ./Phone/sdio_sd.o \
 ./Phone/sdio_test.o \
 ./Phone/sw_udisk.o \
