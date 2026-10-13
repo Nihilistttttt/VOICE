@@ -40,3 +40,8 @@ desktop.ini
 
 # 构建输出目录
 build/
+
+# Android / Gradle
+.gradle/
+.idea/
+local.properties
