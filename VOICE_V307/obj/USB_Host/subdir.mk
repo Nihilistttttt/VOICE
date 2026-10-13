@@ -5,19 +5,13 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../USB_Host/ch32v30x_usbhs_host.c \
-../USB_Host/usb_host_hid.c \
-../USB_Host/usb_host_hub.c 
+../USB_Host/ch32v30x_usbhs_host.c 
 
 C_DEPS += \
-./USB_Host/ch32v30x_usbhs_host.d \
-./USB_Host/usb_host_hid.d \
-./USB_Host/usb_host_hub.d 
+./USB_Host/ch32v30x_usbhs_host.d 
 
 OBJS += \
-./USB_Host/ch32v30x_usbhs_host.o \
-./USB_Host/usb_host_hid.o \
-./USB_Host/usb_host_hub.o 
+./USB_Host/ch32v30x_usbhs_host.o 
 
 DIR_OBJS += \
 ./USB_Host/*.o \

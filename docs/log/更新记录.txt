@@ -920,3 +920,33 @@ Android App (D:\Libraries\Projects\VOICE\voice_control\):
   - accessory_filter.xml : AOA厂商/型号匹配
   - accessibility_service_config.xml : 无障碍服务配置
 
+
+----------------------------------------
+一百一十六、清理无引用文件(MCU + Android)
+----------------------------------------
+
+审计发现两类"在编译清单里但贡献为零"的文件,删除后
+固件二进制逐字节一致(24976/320/6344, 符号集零差异):
+
+MCU (USB_Host/):
+- usb_host_hid.c/h usb_host_hub.c/h  HID/HUB主机类驱动,
+  全工程零引用。map确认: usb_host_hid.o 在 Discarded 区,
+  对镜像贡献 0 字节(--gc-sections 已回收)。注意: 两个 .h
+  被 usb_host_config.h include,在包含链上,保留。
+- ch32v30x_usbfs_host.c.bak  USBFS Host被USBFS Device取代
+  后的改名残留,死文件。
+- 从 obj/USB_Host/subdir.mk 移除 hid/hub 编译项。
+
+Android (voice_control/):
+- MERGE_NOTES.md VERSION.txt  捐献项目(EEG医生端)的合并笔记
+  与版本日志,与本项目无关
+- build_log.txt build_log2.txt build_output.txt  构建日志
+- 共 604 行杂物退出仓库
+
+审计中确认不动的大项(记录在案):
+- VoiceAccessibilityService.java 2208行 / MainActivity.java 1503行
+  上帝类,拆分属行为风险大的重构,单独排期
+- Phone/ 目录 91%(30344/33344行)是FatFs/WCH移植代码,
+  拆 3rdparty/ 子目录需改 include 路径与 .cproject,单独排期
+- SelectToSpeakService.java 在 Manifest 注册但主代码无引用,
+  是否在用待用户确认
