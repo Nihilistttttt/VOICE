@@ -13,6 +13,14 @@ void SPI_ClockEnable(SPI_TypeDef *SPIx)
     else if (SPIx == SPI3) RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI3, ENABLE);
 }
 
+void USART_ClockEnable(USART_TypeDef *USARTx)
+{
+    /* ★ CH32V307: USART1 在 APB2，USART2/3 在 APB1（与 F103 一致）*/
+    if      (USARTx == USART1) RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+    else if (USARTx == USART2) RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
+    else if (USARTx == USART3) RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART3, ENABLE);
+}
+
 void I2C_ClockEnable(I2C_TypeDef *I2Cx)
 {
     /* ★ CH32V307 的 I2C1/I2C2 都挂在 APB1（与 STM32F103 的 I2C1 在 APB2 不同）*/

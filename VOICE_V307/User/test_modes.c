@@ -295,9 +295,36 @@ void Mode_HidMouse(void)
     Pressure_ZeroCalibrate(5);
 #endif
 
+
     while (1) {
         if (USBFS_DevEnumStatus) {
             Delay_Ms(50);
+
+            /* 压差→鼠标按键（试验版）: 短吹=左键(确定/点击) 短吸=右键(返回)
+             * 迟滞: 按下 ±250Pa / 释放 ±150Pa，连按住不松 = 拖拽
+             * （Android 原生: 左键=点击确认, 右键=返回）*/
+            int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            {
+                static uint8_t ms_btn = 0, blow_n = 0, sip_n = 0;
+
+                if (!(ms_btn & 0x01) && p1 >=  250) {          /* 吹: 未按下且过阈值 */
+                    if (++blow_n >= 2) { ms_btn |= 0x01; blow_n = 2; }
+                } else if ((ms_btn & 0x01) && p1 <=  150) {    /* 吹: 已按下且回落 */
+                    ms_btn &= (uint8_t)~0x01; blow_n = 0;
+                } else if (!(ms_btn & 0x01)) {
+                    blow_n = 0;
+                }
+
+                if (!(ms_btn & 0x02) && p1 <= -250) {          /* 吸: 未按下且过阈值 */
+                    if (++sip_n >= 2) { ms_btn |= 0x02; sip_n = 2; }
+                } else if ((ms_btn & 0x02) && p1 >= -150) {    /* 吸: 已按下且回升 */
+                    ms_btn &= (uint8_t)~0x02; sip_n = 0;
+                } else if (!(ms_btn & 0x02)) {
+                    sip_n = 0;
+                }
+
+                mouse_report[0] = ms_btn;
+            }
 
             int16_t x_raw = Joystick_GetX();
             int16_t y_raw = Joystick_GetY();
@@ -315,7 +342,6 @@ void Mode_HidMouse(void)
             if (my > 64) my = 64;
             if (my < -64) my = -64;
 
-            mouse_report[0] = Joystick_GetButton() ? 0 : 0x01;
             mouse_report[1] = (uint8_t)mx;
             mouse_report[2] = (uint8_t)my;
             mouse_report[3] = 0;
@@ -324,12 +350,20 @@ void Mode_HidMouse(void)
 
             cnt++;
             if ((cnt % 20) == 0) {
+                int32_t p1 = 0, p2 = 0;
+                uint8_t sat1 = 0, sat2 = 0;
+#if USE_PRESSURE
+                p1   = Pressure_ReadPa(PRESSURE_SENSOR_1);
+                p2   = Pressure_ReadPa(PRESSURE_SENSOR_2);
+                sat1 = Pressure_Saturated(PRESSURE_SENSOR_1);
+                sat2 = Pressure_Saturated(PRESSURE_SENSOR_2);
+#endif
                 printf("X=%d Y=%d mx=%d my=%d btn=%d\r\n",
                        x_raw, y_raw, mx, my, mouse_report[0]);
 #if USE_PRESSURE
-                printf("[Pressure] s1=%ld Pa  s2=%ld Pa\r\n",
-                       Pressure_ReadPa(PRESSURE_SENSOR_1),
-                       Pressure_ReadPa(PRESSURE_SENSOR_2));
+                printf("[Pressure] s1=%ld Pa%s  s2=%ld Pa%s\r\n",
+                       p1, sat1 ? " [SAT]" : "",
+                       p2, sat2 ? " [SAT]" : "");
 #endif
             }
         } else {
@@ -337,14 +371,18 @@ void Mode_HidMouse(void)
 #if HID_REQUIRE_PHONE
             printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
 #else
-            /* 脱机测试：不等枚举，没主机也持续读传感器打印 */
-            printf("X=%d Y=%d (standalone)", Joystick_GetX(), Joystick_GetY());
+            /* 脱机测试：不等枚举，没主机也持续读传感器打印（含蓝牙广播）*/
+            int32_t p1 = 0, p2 = 0;
+            uint8_t sat1 = 0, sat2 = 0;
 #if USE_PRESSURE
-            printf("  s1=%ld Pa  s2=%ld Pa",
-                   Pressure_ReadPa(PRESSURE_SENSOR_1),
-                   Pressure_ReadPa(PRESSURE_SENSOR_2));
+            p1   = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            p2   = Pressure_ReadPa(PRESSURE_SENSOR_2);
+            sat1 = Pressure_Saturated(PRESSURE_SENSOR_1);
+            sat2 = Pressure_Saturated(PRESSURE_SENSOR_2);
 #endif
-            printf("\r\n");
+            printf("X=%d Y=%d (standalone)  s1=%ld Pa%s  s2=%ld Pa%s\r\n",
+                   Joystick_GetX(), Joystick_GetY(),
+                   p1, sat1 ? " [SAT]" : "", p2, sat2 ? " [SAT]" : "");
 #endif
         }
     }

@@ -18,7 +18,7 @@
  *   0 = 脱机测试：不插手机也持续打印摇杆/压差读数（只影响打印行为；
  *       鼠标上报仍然只在枚举后发送 —— 没有主机就没处发）
  *============================================================================*/
-#define HID_REQUIRE_PHONE   0
+#define HID_REQUIRE_PHONE   1
 
 /*---- ADS1115 排查开关（A/B 对比用）-----------------------------------
  * ADS1115_I2C_HARDWARE: 1=硬件 I2C2 / 0=软件 bit-bang（枚举模式实测能读数）
@@ -227,6 +227,7 @@
  *============================================================================*/
 void SPI_ClockEnable(SPI_TypeDef *SPIx);
 void I2C_ClockEnable(I2C_TypeDef *I2Cx);
+void USART_ClockEnable(USART_TypeDef *USARTx);
 void DMA_ClockEnable(DMA_TypeDef *DMAx);
 void AFIO_ClockEnable(void);
 
