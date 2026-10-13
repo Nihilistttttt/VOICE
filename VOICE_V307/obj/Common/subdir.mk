@@ -5,15 +5,12 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../Common/Config.c \
 ../Common/hal_gpio.c 
 
 C_DEPS += \
-./Common/Config.d \
 ./Common/hal_gpio.d 
 
 OBJS += \
-./Common/Config.o \
 ./Common/hal_gpio.o 
 
 DIR_OBJS += \

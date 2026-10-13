@@ -85,10 +85,9 @@
 #define PRESSURE_ADC2_CH   9
 
 /*============================================================================
- * Common helper functions (board-independent)
+ * 时钟 API 的声明在 hal_gpio.h（GPIO_ClockEnable / SPI_ClockEnable /
+ * DMA_ClockEnable / AFIO_ClockEnable 四个放在一起），实现全部在 hal_gpio.c。
+ * Config.h 只保留"板级事实"，不再混放函数声明。
  *============================================================================*/
-void SPI_ClockEnable(SPI_TypeDef *SPIx);
-void DMA_ClockEnable(DMA_TypeDef *DMAx);
-void AFIO_ClockEnable(void);
 
 #endif /* __CONFIG_H */

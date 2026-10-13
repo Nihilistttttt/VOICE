@@ -16,11 +16,39 @@ static void (*s_exti_callback[16])(void) = {NULL};
 static inline uint8_t get_pin_num(uint32_t enc) { return (uint8_t)(enc & 0xFFFF); }
 static inline uint8_t get_port_idx(uint32_t enc) { return (uint8_t)((enc >> 16) & 0xFF); }
 
+/* ---- 外设时钟使能 ------------------------------------------------------
+ * 四个包装函数全部集中在这里（原来是 GPIO 在这、SPI/DMA/AFIO 在 Config.c）。
+ * 调用方只需要 include hal_gpio.h 就能拿到全部四个。 */
 void GPIO_ClockEnable(uint8_t port_index)
 {
     if (port_index < NUM_PORTS) {
         RCC_APB2PeriphClockCmd(s_gpio_rcc[port_index], ENABLE);
     }
+}
+
+void SPI_ClockEnable(SPI_TypeDef *SPIx)
+{
+    if (SPIx == SPI1) {
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, ENABLE);
+    } else if (SPIx == SPI2) {
+        RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
+    } else if (SPIx == SPI3) {
+        RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI3, ENABLE);
+    }
+}
+
+void DMA_ClockEnable(DMA_TypeDef *DMAx)
+{
+    if (DMAx == DMA1) {
+        RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+    } else if (DMAx == DMA2) {
+        RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA2, ENABLE);
+    }
+}
+
+void AFIO_ClockEnable(void)
+{
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 }
 
 void Hal_GPIO_Init(uint32_t pin_enc, Hal_GPIO_Mode_t mode,

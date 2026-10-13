@@ -43,19 +43,23 @@ main()                        时钟 / 延时 / 串口就绪
 
 | 目录 | 职责 | 边界 |
 |---|---|---|
-| `User/` | 入口 + 中断向量 + 系统时钟 | 不放业务逻辑 |
-| `Common/` | 板级配置（引脚/外设宏）+ GPIO / 时钟抽象 | 不放业务逻辑 |
+| `User/` | 入口（`main.c` 只做启动+选模式）+ 各模式实现（`test_modes.c`）+ 中断向量 + 系统时钟 | 入口里不放任何模式的具体逻辑 |
+| `Common/` | 板级配置（`Config.h`：引脚/外设宏）+ `hal_gpio.c/h`（引脚抽象 + 四个外设时钟包装） | 不放业务逻辑 |
 | `Phone/` | 器件驱动 + 业务编排 + WCH 移植代码 + 例程 | 见下方已知包袱 |
+
+`User/` 的分工：`main.c` 只回答「怎么启动」和「选哪个模式」，各 `TEST_MODE` 的完整实现在
+`test_modes.c`。增删改一个模式只动 `test_modes.c`，不用碰入口。
 
 ### ⚠️ 已知包袱（先记着，暂不修）
 
-1. **`Common/` 这名字没意义** —— 里面其实是 `Config`（板级宏）+ `hal_gpio`（引脚抽象），
+1. **`Common/` 名字没意义** —— 里面其实是 `Config`（板级宏）+ `hal_gpio`（引脚抽象），
    叫 `Hal/` 会清楚得多，但改名要动 MounRiver 的全部构建配置
 2. **`Phone/` 把四类东西混在一起**：
    自研驱动（oled / ads1115 / joystick / mic_hum）、
    业务（phone_control / aoa_host）、
    WCH 移植（ch32v30x_usbfs_device / sw_udisk / usb_desc / sdio_sd / ff / diskio）、
    例程（sdio_test）
+   —— 34160 行里约 91% 是第三方，找自己写的代码要翻很久
 3. **板级引脚定义散落**：`Config.h`、各驱动 `.c`、还有原理图各一份，靠人肉保持一致
 4. **`mode.h` 的一个整数决定整个固件形态**，改它要同步所有 `#if TEST_MODE` 分支
 

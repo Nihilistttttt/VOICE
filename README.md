@@ -59,6 +59,26 @@ cd voice_control
 | 4 | USBHS Device 枚举调试 |
 | 5 | USBFS HID 摇杆鼠标 |
 
+**六个模式全部编译通过，零警告。** 固件体积随模式变化（`.text` 22.8 KB ~ 37.5 KB）。
+
+---
+
+## 固件内部结构（`VOICE_V307/`）
+
+| 目录 / 文件 | 是什么 |
+|---|---|
+| `User/main.c` | 入口：只做启动准备 + 按 `TEST_MODE` 选一个模式 |
+| `User/test_modes.c` | 六个模式的完整实现，一个模式一个 `#if` 段 |
+| `User/ch32v30x_it.c` `system_ch32v30x.c` | 中断向量 / 系统时钟（WCH 原厂文件） |
+| `Common/Config.h` | **板级事实唯一真源**：引脚宏、外设实例、板型 |
+| `Common/hal_gpio.c/h` | 引脚抽象 + 四个外设时钟包装函数 |
+| `Phone/` | 器件驱动 + 业务 + WCH 移植 + 例程（见 ARCHITECTURE.md 的「已知包袱」） |
+| `Core/ Peripheral/ Debug/ USB_Host/ Startup/ Ld/` | WCH 原厂库与链接脚本，**不改** |
+
+> `Phone/` 里约 91% 是 FatFs / WCH 移植代码，自己写的只有约 2200 行 ——
+> 各文件归属见 `ARCHITECTURE.md`。
+
+
 ---
 
 ## 两端怎么配合

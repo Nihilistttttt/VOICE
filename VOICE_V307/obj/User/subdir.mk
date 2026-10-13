@@ -7,17 +7,20 @@
 C_SRCS += \
 ../User/ch32v30x_it.c \
 ../User/main.c \
-../User/system_ch32v30x.c 
+../User/system_ch32v30x.c \
+../User/test_modes.c 
 
 C_DEPS += \
 ./User/ch32v30x_it.d \
 ./User/main.d \
-./User/system_ch32v30x.d 
+./User/system_ch32v30x.d \
+./User/test_modes.d 
 
 OBJS += \
 ./User/ch32v30x_it.o \
 ./User/main.o \
-./User/system_ch32v30x.o 
+./User/system_ch32v30x.o \
+./User/test_modes.o 
 
 DIR_OBJS += \
 ./User/*.o \
