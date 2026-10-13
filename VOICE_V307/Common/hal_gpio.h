@@ -34,16 +34,12 @@ typedef enum {
 } Hal_GPIO_IRQ_Trigger_t;
 
 /* ---- 外设时钟使能 ------------------------------------------------------
- * 四个函数集中放在这里、实现全部在 hal_gpio.c。
- * 分散在两个文件时，加一种新外设时钟要同时改两个地方，漏掉一处的表现是
+ * 四个包装函数的声明与实现都在 hal_clock.h / hal_clock.c（本文件 include 它转发）。
+ * 集中放一处的原因：分散时加一种新外设时钟要同时改两个文件，漏掉一处的表现是
  * 「引脚完全没反应，但编译没有任何警告」。
  *
- * ⚠ Hal_GPIO_Init 不自动开时钟 —— 用前必须先使能对应端口时钟。
- * 注意 hal_gpio.c 里不再有 hal_clock 那一层，这里就是唯一的时钟入口。 */
-void GPIO_ClockEnable(uint8_t port_index);
-void SPI_ClockEnable(SPI_TypeDef *SPIx);
-void DMA_ClockEnable(DMA_TypeDef *DMAx);
-void AFIO_ClockEnable(void);
+ * ⚠ Hal_GPIO_Init 不自动开时钟 —— 用前必须先使能对应端口时钟。 */
+#include "hal_clock.h"
 
 void Hal_GPIO_Init(uint32_t pin_enc, Hal_GPIO_Mode_t mode,
                    Hal_GPIO_Speed_t speed, uint8_t af_num);

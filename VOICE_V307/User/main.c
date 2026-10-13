@@ -2,14 +2,14 @@
 * File Name          : main.c
 * Description        : CH32V307 入口 —— 只做两件事：
 *                        1. 与"用哪个模式"无关的启动准备（中断分组 / 时钟 / 延时 / 串口 / 手机供电）
-*                        2. 按 Phone/mode.h 的 TEST_MODE 选一个模式进去
+*                        2. 按 Common/Config.h 的 TEST_MODE 选一个模式进去
 *
 *                      各模式的完整实现在 User/test_modes.c，
 *                      读这个文件不会被迫先读完任何一个功能的内部逻辑。
 *******************************************************************************/
 
 #include "debug.h"
-#include "mode.h"
+#include "Config.h"
 #include "test_modes.h"
 
 int main(void)

@@ -11,7 +11,7 @@
 *******************************************************************************/
 
 #include "ch32v30x_usbfs_device.h"
-#include "mode.h"
+#include "Config.h"
 #if TEST_MODE != 5
 #include "sw_udisk.h"
 #endif

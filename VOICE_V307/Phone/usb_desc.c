@@ -1,5 +1,5 @@
 #include "usb_desc.h"
-#include "mode.h"
+#include "Config.h"
 
 #if TEST_MODE == 5
 

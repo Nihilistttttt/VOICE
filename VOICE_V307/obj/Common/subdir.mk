@@ -5,12 +5,15 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../Common/hal_clock.c \
 ../Common/hal_gpio.c 
 
 C_DEPS += \
+./Common/hal_clock.d \
 ./Common/hal_gpio.d 
 
 OBJS += \
+./Common/hal_clock.o \
 ./Common/hal_gpio.o 
 
 DIR_OBJS += \
