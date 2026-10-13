@@ -45,3 +45,7 @@ build/
 .gradle/
 .idea/
 local.properties
+
+# 本地资料：参考例程库 / 无关项目 / 历史归档 / 本地备份 —— 统一放这里，不上传
+/_local/
+/.codeartsdoer/
