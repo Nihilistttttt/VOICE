@@ -28,6 +28,7 @@
  *---------------------------------------------------------------------------*/
 #if ADS1115_I2C_HARDWARE
 
+#define ADS1115_I2C_SPEED      400000   /* 上拉 2.2k，ADS1115 规格支持 400k */
 #define ADS1115_I2C_TIMEOUT    20000    /* 事件等待循环上限 */
 
 static uint8_t i2c_wait_event(uint32_t event)
@@ -63,7 +64,7 @@ static void transport_init(void)
     I2C_ClockEnable(ADS1115_I2C_INSTANCE);
 
     I2C_InitTypeDef I2C_InitStructure = {0};
-    I2C_InitStructure.I2C_ClockSpeed          = 100000;  /* 上拉 2.2k 支持 400k，稳定后可提速 */
+    I2C_InitStructure.I2C_ClockSpeed          = ADS1115_I2C_SPEED;
     I2C_InitStructure.I2C_Mode                = I2C_Mode_I2C;
     I2C_InitStructure.I2C_DutyCycle           = I2C_DutyCycle_16_9;
     I2C_InitStructure.I2C_OwnAddress1         = 0x00;
@@ -72,7 +73,7 @@ static void transport_init(void)
     I2C_Init(ADS1115_I2C_INSTANCE, &I2C_InitStructure);
 
     I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);
-    ADS_DBG("[ADS1115] transport = hardware I2C2 @100kHz\r\n");
+    ADS_DBG("[ADS1115] transport = hardware I2C2 @%ukHz\r\n", ADS1115_I2C_SPEED / 1000);
 }
 
 uint8_t ADS1115_WriteReg(uint8_t reg, uint16_t value)
@@ -290,16 +291,20 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
     }
 
     config = ADS1115_OS_START | mux | ADS1115_PGA_6_144V |
-             ADS1115_MODE_SINGLE | ADS1115_DR_128SPS;
+             ADS1115_MODE_SINGLE | ADS1115_DR_475SPS;
 
     if (ADS1115_WriteReg(ADS1115_REG_CONFIG, config)) {
         ADS_DBG("[ADS1115] ch%d: config write failed\r\n", channel);
         return 0;
     }
 
-    Delay_Ms(10);
-
-    cfg_read = ADS1115_ReadReg(ADS1115_REG_CONFIG);
+    /* 等 OS 位（转换完成）: 475SPS 单次转换约 2.1ms，上限 15ms 防挂死。
+     * （原固定延时 10ms 是按 128SPS 的保守值，白等一半时间）*/
+    uint16_t poll = 0;
+    do {
+        Delay_Us(200);
+        cfg_read = ADS1115_ReadReg(ADS1115_REG_CONFIG);
+    } while ((cfg_read & 0x8000) == 0 && ++poll < 60);
     raw = (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
 
 #if ADS1115_DEBUG
