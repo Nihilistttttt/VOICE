@@ -300,18 +300,88 @@ void Mode_HidMouse(void)
     uint8_t sip_mode = 0;       /* 0=无 1=按住计时 2=音量模式 */
     uint16_t sip_ms = 0;        /* 吸住时长（约 50ms/循环）*/
     uint8_t rclick_pend = 0;    /* 右键点击: 2=按下待发 1=待释放 */
+    uint8_t scroll_mode = 0;    /* 双口滚动: 0=无 1=滚动中 */
+    int8_t  scroll_dir = 0;     /* 滚动方向: +1=向下 -1=向上 */
+    uint8_t scroll_n = 0;       /* 滚轮限速计数 */
+    uint8_t s2_mode = 0;        /* s2 手势: 0=无 1=吹按住 2=吸按住 */
+    uint16_t s2_ms = 0;         /* s2 按住时长（约 50ms/循环）*/
+    uint8_t b2_n = 0, s2_n2 = 0;
+    uint8_t kb_pend = 0;        /* 键盘发送: 1=按下待发 2=释放待发 */
+    uint8_t kb_mod = 0, kb_key = 0;   /* 待发修饰键/键值 */
+    uint8_t home_seq = 0;       /* 回主屏三连: 1=AltTab下 2=起 3=等待1s 4=右键按下 5=右键释放 6=等待1s 7=Home下 8=Home起 */
+    uint8_t home_n = 0;         /* 等待相计数 */
+    uint8_t KB_Data_Pack[8] = {0};    /* 键盘 IN 报告（ITF0/EP1）*/
+#define HOME_X_CENTER_COUNTS   540    /* 屏宽一半(P20=1080px)，按指针速度实测调整 */
+#define HOME_Y_NAV_OFFSET      24     /* 主页键中心距屏幕底边 */
 
     while (1) {
         if (USBFS_DevEnumStatus) {
-            Delay_Ms(50);
+            if (home_seq == 5) {
+                Delay_Ms(30);   /* 点击保持期: 按下→释放太短怕 EMUI 不识别成点击 */
+            } else if (home_seq == 1) {
+                /* 冲角段: 主机取走上一帧即发下一帧(EP2 bInterval=1ms)
+                 * 满幅冲角怎么飞都出不了屏(边界钳位), 快发只赚不亏 */
+                uint16_t w = 0;
+                while (USBFS_Endp_Busy[DEF_UEP2] && ++w < 100) Delay_Us(100);
+            } else if (home_seq) {
+                /* 定位/点击段: 必须 25ms/帧 —— Android 指针加速度随速度放大位移,
+                 * 快发会被放大导致飞过头; 慢速下"计数≈距离"的映射才成立 */
+                Delay_Ms(25);
+            } else {
+                Delay_Ms(50);
+            }
 
             /* 手势映射:
              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
              *   短吸 = 右键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量)
              * 迟滞: 按下 ±250Pa / 释放 ±150Pa */
             int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            int32_t p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
 
-            if (!(ms_btn & 0x01) && p1 >=  250) {          /* 吹: 未按下且过阈值 */
+            /* s2 手势: 短吸=Home 短吹=Alt+Tab(多任务切换)
+             * 按住≥500ms 无动作（预留）；迟滞同 s1（按 ±250 / 释 ±150）*/
+            if (s2_mode == 0) {
+                if (p2 >=  250) { if (++b2_n >= 2) { s2_mode = 1; s2_ms = 0; b2_n = 2; } }
+                else if (p2 <= -250) { if (++s2_n2 >= 2) { s2_mode = 2; s2_ms = 0; s2_n2 = 2; } }
+                else { b2_n = 0; s2_n2 = 0; }
+            } else if (s2_ms < 500) {                     /* 按住计时 */
+                if (s2_mode == 1 && p2 <=  150) {         /* 短吹松口 → Alt+Tab */
+                    kb_mod = 0x04; kb_key = 0x2B; kb_pend = 1; s2_mode = 0; b2_n = 0;
+                } else if (s2_mode == 2 && p2 >= -150) {  /* 短吸松口 → 主屏（脚本化底部上滑）*/
+                    home_seq = 1; s2_mode = 0; s2_n2 = 0;
+                } else {
+                    s2_ms += 50;
+                }
+            } else {                                      /* 按住≥500ms: 无动作（预留）*/
+                if (s2_mode == 1 && p2 <=  150) s2_mode = 0;
+                else if (s2_mode == 2 && p2 >= -150) s2_mode = 0;
+            }
+
+            /* 键盘报告两相发送: 按下 → (下一循环)释放 */
+            if (kb_pend == 1) {
+                KB_Data_Pack[0] = kb_mod;
+                KB_Data_Pack[2] = kb_key;
+                USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                kb_pend = 2;
+            } else if (kb_pend == 2) {
+                KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
+                USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                kb_pend = 0;
+            }
+
+            /* 双口滚动（优先于单口手势）: 双吹=向下滚 双吸=向上滚
+             * 进入: 双口 |P|≥150   退出: 双口 |P|<100 */
+            if (!scroll_mode) {
+                if (p1 >=  150 && p2 >=  150) { scroll_mode = 1; scroll_dir = -1; scroll_n = 0; }   /* 双吹 = 上滚 */
+                else if (p1 <= -150 && p2 <= -150) { scroll_mode = 1; scroll_dir =  1; scroll_n = 0; }   /* 双吸 = 下滚 */
+            } else {
+                int32_t a1 = (p1 < 0) ? -p1 : p1;
+                int32_t a2 = (p2 < 0) ? -p2 : p2;
+                if (a1 < 100 && a2 < 100) { scroll_mode = 0; scroll_dir = 0; scroll_n = 0; }
+            }
+
+            if (!scroll_mode) {
+            if (!(ms_btn & 0x01) && p1 >=  250 && p2 > -100 && p2 < 100) {          /* 吹: 过阈值且另一口空闲 */
                 if (++blow_n >= 2) { ms_btn |= 0x01; blow_n = 2; }
             } else if ((ms_btn & 0x01) && p1 <=  150) {    /* 吹: 已按下且回落 */
                 ms_btn &= (uint8_t)~0x01; blow_n = 0;
@@ -320,7 +390,7 @@ void Mode_HidMouse(void)
             }
 
             if (sip_mode == 0) {
-                if (!(ms_btn & 0x02) && p1 <= -250) {      /* 吸: 过阈值开始计时 */
+                if (!(ms_btn & 0x02) && p1 <= -250 && p2 > -100 && p2 < 100) {      /* 吸: 过阈值且另一口空闲 */
                     if (++sip_n >= 2) { sip_mode = 1; sip_ms = 0; sip_n = 2; }
                 } else {
                     sip_n = 0;
@@ -339,10 +409,11 @@ void Mode_HidMouse(void)
 
             /* 右键点击: 按下→释放（两个循环完成, 构成一次点击）*/
             if (rclick_pend == 2) {
-                ms_btn |= 0x02; rclick_pend = 1;
+                ms_btn |= 0x04; rclick_pend = 1;      /* 中键 = EMUI 返回（华为官方: 右键无返回语义）*/
             } else if (rclick_pend == 1) {
-                ms_btn &= (uint8_t)~0x02; rclick_pend = 0;
+                ms_btn &= (uint8_t)~0x04; rclick_pend = 0;
             }
+            } /* 非滚动模式: 单口手势结束 */
 
             mouse_report[0] = ms_btn;
 
@@ -362,17 +433,76 @@ void Mode_HidMouse(void)
             if (my > 64) my = 64;
             if (my < -64) my = -64;
 
-            /* 吸住音量模式: 指针冻结 + 摇杆上下倾斜 = 音量加减（Consumer 键）*/
+            /* Consumer 字节: 音量位（吸住音量模式: 指针冻结 + 倾斜=音量）*/
+            uint8_t cons = 0;
             if (sip_mode == 2) {
                 mx = 0; my = 0;
-                mouse_report[4] = (y_off < -600) ? 0x01 : (y_off > 600) ? 0x02 : 0;
-            } else {
-                mouse_report[4] = 0;       /* 非音量模式: 吹住的指针跟随=拖拽 */
+                cons = (y_off < -600) ? 0x01 : (y_off > 600) ? 0x02 : 0;
             }
+            mouse_report[4] = cons;
 
             mouse_report[1] = (uint8_t)mx;
             mouse_report[2] = (uint8_t)my;
             mouse_report[3] = 0;
+            if (scroll_mode && ++scroll_n >= 2) { scroll_n = 0; mouse_report[3] = scroll_dir; }   /* 双口滚动: 每 100ms 一格 */
+
+            /* 回主屏（s2 短吸触发）—— 按 HOME_MODE 宏选择实现
+             * ★ 序列必须在正常赋值之后: 它最终接管整个报告 */
+            if (home_seq) {
+#if HOME_MODE == HOME_MODE_KEYBOARD
+                switch (home_seq) {
+                case 1:   /* Alt+Tab 按下 */
+                    KB_Data_Pack[0] = 0x04; KB_Data_Pack[2] = 0x2B;   /* LAlt+Tab */
+                    USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                    home_seq = 2; break;
+                case 2:   /* 释放 → 多任务界面打开 */
+                    KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
+                    USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                    home_seq = 3; home_n = 0; break;
+                case 3:   /* 等待 400ms: 多任务界面打开动画 */
+                    if (++home_n >= 1) { home_seq = 4; home_n = 0; }
+                    break;
+                case 4:   /* 鼠标中键按下（EMUI: 中键=返回，关多任务 → 桌面）*/
+                    mouse_report[0] = 0x04;
+                    home_seq = 5; break;
+                case 5:   /* 中键释放 → 桌面 */
+                    mouse_report[0] = 0x00;
+                    home_seq = 6; home_n = 0; break;
+                case 6:   /* 等待 300ms: 桌面稳定 */
+                    if (++home_n >= 1) { home_seq = 7; home_n = 0; }
+                    break;
+                case 7:   /* Home 按下（桌面 → 主页）*/
+                    KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0x4A;
+                    USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                    home_seq = 8; break;
+                case 8:   /* 释放 → 完成 */
+                    KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
+                    USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
+                    home_seq = 0; break;
+                }
+#else
+                switch (home_seq) {
+                case 1:   /* 冲左下角: X 左满幅 + Y 下满幅（边界钳位）*/
+                    mouse_report[1] = 0x80;    /* X = -128 */
+                    mouse_report[2] = 127;     /* Y = +127 */
+                    if (++home_n >= 12) { home_seq = 2; home_n = 0; }
+                    break;
+                case 2:   /* X 右移到屏幕中心（分 5 报告，每份 108 计数）*/
+                    mouse_report[1] = HOME_X_CENTER_COUNTS / 5; mouse_report[2] = 0;
+                    if (++home_n >= 5) { home_seq = 3; home_n = 0; }
+                    break;
+                case 3:   /* Y 微调: 进入主页键中心 */
+                    mouse_report[2] = (uint8_t)(-HOME_Y_NAV_OFFSET);
+                    home_seq = 4; break;
+                case 4:   /* 左键按下 */
+                    mouse_report[0] |= 0x01;
+                    home_seq = 5; break;
+                case 5:   /* 左键释放 → 主页键点击 = 回主页 */
+                    mouse_report[0] &= (uint8_t)~0x01;
+                    home_seq = 0; break;
+                }
+#endif
+            }
 
             USBFS_Endp_DataUp(DEF_UEP2, mouse_report, 5, DEF_UEP_CPY_LOAD);
 

@@ -30,6 +30,15 @@
 #define ADS1115_I2C_HARDWARE  1
 #define ADS1115_DEBUG         1
 
+/*---- 回主屏方式（s2 短吸触发）---------------------------------------
+ * HOME_MODE_CLICKNAV = 点击底部正中主页键（P20/EMUI 适配，当前方案）
+ *   原理: 指针冲到左下角(边界钳位) → 右移半屏宽 → 点击主页键
+ * HOME_MODE_KEYBOARD = 键盘三连（旧方案保留: Alt+Tab→Esc→Home）
+ *   注: EMUI 在应用内不响应键盘 Home 键码（ROM 分发策略），故退役*/
+#define HOME_MODE_KEYBOARD  0
+#define HOME_MODE_CLICKNAV  1
+#define HOME_MODE           HOME_MODE_CLICKNAV
+
 /*---- ALERT/RDY 转换完成中断（实测本板不触发，禁用）-------------------
  * 实测: 传感器 ALERT 引脚在单次转换完成时不拉低（135 次全 lvl=1），
  * 原因未定（RDY 模式行为与手册不符/引脚映射存疑）。禁用后直接走
