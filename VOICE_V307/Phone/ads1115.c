@@ -23,6 +23,17 @@
 #define ADS_FAIL()
 #endif
 
+/*============================================================================
+ * ALERT/RDY(PE15) 转换完成中断 —— 走 hal_gpio 的 EXTI 回调分发表
+ * （此前"EXTI15_10 被 hal_gpio 占用会撞车"的说法有误: 该模块本就是
+ *   按线回调分发表,注册即用,无冲突）
+ * ISR 只置标志,I2C 读取全部在主循环 —— 嵌入式原则: ISR 最小化
+ *============================================================================*/
+#if ADS1115_ALERT_ENABLE
+static volatile uint8_t s_alert_flag = 0;
+static void ads_alert_isr(void) { s_alert_flag = 1; }
+#endif
+
 /*---------------------------------------------------------------------------
  * 传输层 A：硬件 I2C2
  *---------------------------------------------------------------------------*/
@@ -272,13 +283,24 @@ void ADS1115_Init(void)
     transport_init();
 
     Hal_GPIO_Init(ADS1115_ALERT_PIN_ENC, HAL_GPIO_MODE_INPUT_PU, HAL_GPIO_SPEED_HIGH, 0);
+#if ADS1115_ALERT_ENABLE
+    /* ALERT/RDY: 转换完成拉低(RDY 模式为上电默认), 下降沿置完成标志 */
+    Hal_GPIO_IRQ_Config(ADS1115_ALERT_PIN_ENC, HAL_GPIO_IRQ_FALLING, 1, 3, ads_alert_isr);
+#endif
+
+#if ADS1115_ALERT_ENABLE
+    /* 官方转换就绪配置（TI 手册）: 阈值寄存器显式写默认值启用 RDY 模式。
+     * 此前依赖上电默认值未显式写入 —— 若该单元默认值不同则 RDY 不启用。 */
+    ADS1115_WriteReg(ADS1115_REG_LO_THRESH, 0x8000);
+    ADS1115_WriteReg(ADS1115_REG_HI_THRESH, 0x7FFF);
+#endif
 }
 
 int16_t ADS1115_ReadChannel(uint8_t channel)
 {
     uint16_t mux;
     uint16_t config;
-    uint16_t cfg_read;
+    uint16_t cfg_read = 0;
     int16_t  raw;
 
     switch (channel)
@@ -298,9 +320,36 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
         return 0;
     }
 
-    /* 等 OS 位（转换完成）: 475SPS 单次转换约 2.1ms，上限 15ms 防挂死。
-     * （原固定延时 10ms 是按 128SPS 的保守值，白等一半时间）*/
     uint16_t poll = 0;
+
+#if ADS1115_ALERT_ENABLE
+    /* 等转换完成: ALERT/RDY 下降沿中断置标志（475SPS 约 2.1ms）。
+     * 上限 15ms 防挂死；超时回退为 OS 位轮询（兼容 ALERT 未接）。 */
+    s_alert_flag = 0;
+    while (!s_alert_flag && ++poll < 100) {
+        Delay_Us(150);
+    }
+    if (!s_alert_flag) {
+        ADS_DBG("[ADS1115] ch%d: ALERT timeout, fallback OS poll\r\n", channel);
+        do {
+            Delay_Us(200);
+            cfg_read = ADS1115_ReadReg(ADS1115_REG_CONFIG);
+        } while ((cfg_read & 0x8000) == 0 && ++poll < 160);
+    }
+    raw = (int16_t)ADS1115_ReadReg(ADS1115_REG_CONVERSION);
+
+#if ADS1115_DEBUG
+    if (!s_alert_flag)
+        ADS_DBG("[ADS1115] ch%d: ALERT timeout lvl=%d cfg=%04X raw=%d\r\n",
+                channel, Hal_GPIO_Read(ADS1115_ALERT_PIN_ENC), cfg_read, raw);
+    else
+        ADS_DBG("[ADS1115] ch%d: raw=%d\r\n", channel, raw);
+#endif
+
+    if (!s_alert_flag && (cfg_read & 0x8000) == 0)
+        return 0;
+#else
+    /* OS 位轮询（本板 ALERT 不触发, 已禁用等待）: 475SPS 约 2.1ms, 上限 15ms */
     do {
         Delay_Us(200);
         cfg_read = ADS1115_ReadReg(ADS1115_REG_CONFIG);
@@ -309,14 +358,14 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
 
 #if ADS1115_DEBUG
     if ((cfg_read & 0x8000) == 0)
-        ADS_DBG("[ADS1115] ch%d: OS bit=0 (not ready), cfg=%04X raw=%d\r\n",
-                channel, cfg_read, raw);
+        ADS_DBG("[ADS1115] ch%d: OS bit=0, cfg=%04X raw=%d\r\n", channel, cfg_read, raw);
     else
         ADS_DBG("[ADS1115] ch%d: raw=%d\r\n", channel, raw);
 #endif
 
     if ((cfg_read & 0x8000) == 0)
         return 0;
+#endif
 
     return raw;
 }

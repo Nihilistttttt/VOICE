@@ -24,6 +24,7 @@
 #define ADS1115_DR_860SPS      0x00B0
 
 #define ADS1115_MODE_SINGLE    0x0100
+#define ADS1115_MODE_CONTINUOUS 0x0000
 #define ADS1115_OS_START       0x8000
 
 void ADS1115_Init(void);

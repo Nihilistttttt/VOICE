@@ -263,7 +263,7 @@ void Mode_HidMouse(void)
     int32_t x_sum = 0, y_sum = 0;
     int     x_n = 0, y_n = 0;
     int32_t x_mid, y_mid;
-    uint8_t mouse_report[4] = {0, 0, 0, 0};
+    uint8_t mouse_report[5] = {0, 0, 0, 0, 0};   /* [4]=Consumer: bit0=VolUp bit1=VolDown */
     u32     cnt = 0;
 
     printf("=== USBFS HID Joystick Mouse Mode ===\r\n");
@@ -296,35 +296,55 @@ void Mode_HidMouse(void)
 #endif
 
 
+    uint8_t ms_btn = 0, blow_n = 0, sip_n = 0;   /* 压差按键状态（函数级, 跨循环保持）*/
+    uint8_t sip_mode = 0;       /* 0=无 1=按住计时 2=音量模式 */
+    uint16_t sip_ms = 0;        /* 吸住时长（约 50ms/循环）*/
+    uint8_t rclick_pend = 0;    /* 右键点击: 2=按下待发 1=待释放 */
+
     while (1) {
         if (USBFS_DevEnumStatus) {
             Delay_Ms(50);
 
-            /* 压差→鼠标按键（试验版）: 短吹=左键(确定/点击) 短吸=右键(返回)
-             * 迟滞: 按下 ±250Pa / 释放 ±150Pa，连按住不松 = 拖拽
-             * （Android 原生: 左键=点击确认, 右键=返回）*/
+            /* 手势映射:
+             *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
+             *   短吸 = 右键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量)
+             * 迟滞: 按下 ±250Pa / 释放 ±150Pa */
             int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
-            {
-                static uint8_t ms_btn = 0, blow_n = 0, sip_n = 0;
 
-                if (!(ms_btn & 0x01) && p1 >=  250) {          /* 吹: 未按下且过阈值 */
-                    if (++blow_n >= 2) { ms_btn |= 0x01; blow_n = 2; }
-                } else if ((ms_btn & 0x01) && p1 <=  150) {    /* 吹: 已按下且回落 */
-                    ms_btn &= (uint8_t)~0x01; blow_n = 0;
-                } else if (!(ms_btn & 0x01)) {
-                    blow_n = 0;
-                }
+            if (!(ms_btn & 0x01) && p1 >=  250) {          /* 吹: 未按下且过阈值 */
+                if (++blow_n >= 2) { ms_btn |= 0x01; blow_n = 2; }
+            } else if ((ms_btn & 0x01) && p1 <=  150) {    /* 吹: 已按下且回落 */
+                ms_btn &= (uint8_t)~0x01; blow_n = 0;
+            } else if (!(ms_btn & 0x01)) {
+                blow_n = 0;
+            }
 
-                if (!(ms_btn & 0x02) && p1 <= -250) {          /* 吸: 未按下且过阈值 */
-                    if (++sip_n >= 2) { ms_btn |= 0x02; sip_n = 2; }
-                } else if ((ms_btn & 0x02) && p1 >= -150) {    /* 吸: 已按下且回升 */
-                    ms_btn &= (uint8_t)~0x02; sip_n = 0;
-                } else if (!(ms_btn & 0x02)) {
+            if (sip_mode == 0) {
+                if (!(ms_btn & 0x02) && p1 <= -250) {      /* 吸: 过阈值开始计时 */
+                    if (++sip_n >= 2) { sip_mode = 1; sip_ms = 0; sip_n = 2; }
+                } else {
                     sip_n = 0;
                 }
-
-                mouse_report[0] = ms_btn;
+            } else if (sip_mode == 1) {                    /* 按住计时 */
+                if (p1 >= -150) {                          /* 松口: 短吸=右键点击 */
+                    if (sip_ms < 500) rclick_pend = 2;
+                    sip_mode = 0; sip_n = 0;
+                } else {
+                    sip_ms += 50;
+                    if (sip_ms >= 500) sip_mode = 2;       /* 吸住 → 音量模式 */
+                }
+            } else {                                       /* 音量模式 */
+                if (p1 >= -150) { sip_mode = 0; sip_n = 0; }      /* 松口退出 */
             }
+
+            /* 右键点击: 按下→释放（两个循环完成, 构成一次点击）*/
+            if (rclick_pend == 2) {
+                ms_btn |= 0x02; rclick_pend = 1;
+            } else if (rclick_pend == 1) {
+                ms_btn &= (uint8_t)~0x02; rclick_pend = 0;
+            }
+
+            mouse_report[0] = ms_btn;
 
             int16_t x_raw = Joystick_GetX();
             int16_t y_raw = Joystick_GetY();
@@ -342,11 +362,19 @@ void Mode_HidMouse(void)
             if (my > 64) my = 64;
             if (my < -64) my = -64;
 
+            /* 吸住音量模式: 指针冻结 + 摇杆上下倾斜 = 音量加减（Consumer 键）*/
+            if (sip_mode == 2) {
+                mx = 0; my = 0;
+                mouse_report[4] = (y_off < -600) ? 0x01 : (y_off > 600) ? 0x02 : 0;
+            } else {
+                mouse_report[4] = 0;       /* 非音量模式: 吹住的指针跟随=拖拽 */
+            }
+
             mouse_report[1] = (uint8_t)mx;
             mouse_report[2] = (uint8_t)my;
             mouse_report[3] = 0;
 
-            USBFS_Endp_DataUp(DEF_UEP2, mouse_report, 4, DEF_UEP_CPY_LOAD);
+            USBFS_Endp_DataUp(DEF_UEP2, mouse_report, 5, DEF_UEP_CPY_LOAD);
 
             cnt++;
             if ((cnt % 20) == 0) {
