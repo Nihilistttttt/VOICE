@@ -1212,3 +1212,54 @@ F1 手势逻辑全内联 Mode_HidMouse(18 个局部状态变量, 6 套状态机�
   290 行等价抽取只能靠真机手测覆盖。
 - "纯逻辑模块+调用方组合"分层是框架迁移的前置条件: 状态机不碰
   USB/延时/ADC, 将来换 SMF 容器时业务逻辑一行不改。
+
+----------------------------------------
+一百二十五、Zephyr SMF 移植落地: gesture_sm 重写为 SMF 实现(125 断言零改动全过)
+----------------------------------------
+
+背景: 用户拍板框架路线走 Zephyr SMF(授权 Apache-2.0 干净/轻量;
+QP 虽功能最全但双授权)。整体 Zephyr 不可行(上游 CH32V307 板级
+无 USB device 驱动+west/Kconfig 构建替换+RTOS 红线), 故只移植
+SMF 库本体进裸机工程。
+
+实质更新:
+1. 移植三件套(Common/ 平级, 避开新建目录的 6 类构建改动):
+   - smf_port.h: 移植层——<zephyr/*> 依赖换成标准 C 头; 配置固化
+     (ANCESTOR=1/INITIAL_TRANSITION=1/INSTRUMENTATION 关);
+     LOG_ERR→静默 shim(仅编程错误路径触发)
+   - smf.h: API 头(302 行), Doxygen 注释译为中文, 代码与上游一致
+   - smf.c: 实现(509 行), 仅 include/LOG 两处差异, 核心编排逻辑
+     (entry/run/exit 编排/LCA/terminate)逐行一致, Apache-2.0 头保留
+   - SMF_CREATE_STATE 因配置固定而写死展开(免移植 util.h 宏机器)
+2. gesture_sm.c/h 原地重写为 SMF 实现: 五个机器(单口/滚动/第二口/
+   键盘两相/回主页)全部 smf_set_initial 初始化 + smf_run_state 每
+   tick 推进 + 处理函数内 smf_set_state 转移。外部 API/镜像字段
+   (state/btn/pend/phase)不变 → test_modes.c 与 125 条宿主断言
+   零改动。结构约定: smf_ctx 置首成员(处理函数直接转型);
+   输入槽(p*__tick)/输出槽(wheel_out/cmd_out/out_evt/move...)由
+   step() 前写后读; 镜像字段由 entry/run 维护供查询与测试断言。
+
+踩坑(SMF 语义两条, 23 个失败断言换来的):
+1. 子状态转移当拍, 祖先 run 被跳过(internal->new_state 置位即停
+   传播)——跨状态每拍逻辑(吹气迟滞/中键两相)不能放父状态, 否则
+   "短吸释放当拍出中键位"晚一拍。s1 改扁平三态 + 每状态 run 内
+   按原始顺序调共享助手(blow_update→吸进程→rclick_update)。
+2. 转移当拍, 新状态的 run 不执行——scroll 进入当拍比 v1 晚一拍
+   出格(ACTIVE entry 置 n=1 补齐); home 五个相全部要有 entry 维护
+   phase 镜像(漏了 FLOOD/Y/DOWN/HOLD → 17 个断言失败)。
+
+意义与必要性:
+- 状态编排从手写 switch 交给 SMF: entry/exit 生命周期、层次扩展、
+  自转移语义都有了框架保证; 业务逻辑与容器解耦, 后续加状态/加
+  层次只改状态表。
+- 125 条断言不改一字而全过 = 重构等价性的机械化证明——上轮恢复
+  的宿主单测在本次重构中兑现了它的全部价值。
+
+获取方式备忘: GitHub raw 的 curl SSL 被掐 → jsdelivr 拿到 smf.h;
+smf.c 在 main 分支已从 subsys/smf/ 迁到 lib/smf/(老路径 404),
+用 blobless sparse clone + git show HEAD:lib/smf/smf.c 取得。
+
+验证: hosttest 125/125 全过(测试一字未改); MODE=0 固件
+.text=28336(v1 手写版 26932, SMF 库+entry 机制 +1.4KB)零警告,
+SMF 符号确认在镜像内; MODE=0 构建后 TEST_MODE 已按用户要求
+恢复为 0(用户刷 SMF 固件真机验证用)。
