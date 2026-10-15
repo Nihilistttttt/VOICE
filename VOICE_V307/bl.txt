@@ -1,0 +1,6 @@
+﻿make: Entering directory 'D:/Libraries/Projects/VOICE/VOICE_V307/obj'
+D:/InstallData/EmbTools/MounRiver/MounRiver_Studio2/resources/app/resources/win32/others/Build_Tools/Make/bin/make --no-print-directory main-build 
+riscv-none-embed-size --format=berkeley "TEST-INMP441-DOUBLE.elf"
+   text	   data	    bss	    dec	    hex	filename
+  26316	    392	   5344	  32052	   7d34	TEST-INMP441-DOUBLE.elf
+make: Leaving directory 'D:/Libraries/Projects/VOICE/VOICE_V307/obj'

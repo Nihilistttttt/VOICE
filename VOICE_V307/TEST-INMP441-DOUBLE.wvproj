@@ -137,7 +137,10 @@
 							"${project}/Peripheral/inc",
 							"${project}/USB_Host",
 							"${project}/Common",
-							"${project}/Phone"
+							"${project}/Drivers",
+							"${project}/Framework",
+							"${project}/Middleware",
+							"${project}/Services"
 						],
 						"include_system_paths": [],
 						"include_files": []

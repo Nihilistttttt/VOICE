@@ -30,8 +30,11 @@ SUBDIRS := \
 Common \
 Core \
 Debug \
+Drivers \
+Framework \
+Middleware \
 Peripheral/src \
-Phone \
+Services \
 Startup \
 USB_Host \
 User \

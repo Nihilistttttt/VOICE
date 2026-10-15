@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOICE 项目目录规划（基于架构原则）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.75; padding: 40px 20px; }
+  .container { max-width: 1000px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 48px 56px; }
+  h1 { font-size: 26px; border-bottom: 3px solid #3498db; padding-bottom: 14px; margin-bottom: 8px; }
+  .meta { color: #7f8c9a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 20px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid #3498db; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: #34495e; }
+  p, li { font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th { background: #3498db; color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; }
+  td { border: 1px solid #dfe6ec; padding: 7px 10px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafb; }
+  pre { background: #2c3e50; color: #ecf0f1; padding: 16px 20px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.6; overflow-x: auto; }
+  code { background: #eef2f5; padding: 1px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 13px; color: #c0392b; }
+  .warn { border-left: 4px solid #e67e22; background: #fdf6ec; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .ok { border-left: 4px solid #27ae60; background: #f4faf6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .footer { margin-top: 44px; padding-top: 14px; border-top: 1px dashed #d5dbdb; color: #95a5a6; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>VOICE 项目目录规划</h1>
+<div class="meta">2026-10-15 ｜ 依据: embedded-firmware-dev 架构原则（三层所有权/单一真源/模块边界）+ c-cpp-dev 重构准则 ｜ 性质: 规划文档，等待执行确认</div>
+
+<h2>一、现状问题（按架构原则逐条对照）</h2>
+<table>
+<tr><th style="width:30%">问题</th><th style="width:14%">违反原则</th><th>现状与影响</th></tr>
+<tr><td><b>Phone/ 名不副实且大杂烩</b></td><td>三层所有权</td><td>19 个文件混装四类职责: 片外器件驱动（ads1115/pressure/joystick/OLED）、USB 协议栈（usbfs_device/usb_desc/usbhs_dev/aoa_host）、第三方中间件（FatFs 全家/diskio）、旧版 V2 业务（mic_hum/phone_control）+ 存储驱动（sdio_sd/sw_udisk/sdio_test）。依赖方向不可读，新人无法从目录判断"改驱动该去哪、改业务该去哪"。</td></tr>
+<tr><td><b>Common/ 混装四类职责</b></td><td>单一职责</td><td>配置真源（Config）+ 板级 HAL（hal_gpio）+ 业务状态机（gesture_sm）+ 第三方框架（smf）同层。gesture_sm 是纯业务逻辑，与 GPIO HAL 平级放置，层次关系被抹平。</td></tr>
+<tr><td><b>USB_Host/(SDK) 与 aoa_host/(项目) 割裂</b></td><td>模块边界</td><td>USB 主机相关代码分居两处，AOA 协议的完整视图需要跨目录拼装。</td></tr>
+<tr><td><b>根级杂物</b></td><td>—</td><td>VOICE_V307/bl.txt、bl2.txt（散落的串口日志）、.mrs/（IDE 编码偏好文件）未忽略；ARCHITECTURE.md 内容停留在 Board/Hal/App 分层时代（已过期两轮重构）。</td></tr>
+<tr><td>已合理的部分</td><td>—</td><td>根级六目录（固件/App/硬件/文档/单测/备份）职责清晰；hosttest 在 MounRiver 工程外（sourceEntries 约束）；_local 备份已被 git 忽略；WCH SDK 五目录保持上游原样。</td></tr>
+</table>
+
+<h2>二、目标布局（固件侧）</h2>
+<p>按三层所有权组织项目自有代码，依赖方向<b>只允许向下</b>: 入口 → 业务 → 驱动/框架 → HAL/SDK。</p>
+<pre>VOICE_V307/
+├── User/                       入口层（WCH 惯例保留）
+│     main.c  test_modes.c/h  ch32v30x_it.c/h  system_ch32v30x.c/h  ch32v30x_conf.h
+│     职责: 上电流程、TEST_MODE 分发、每模式一函数的编排
+│
+├── Services/                   业务层（组件）
+│     gesture_sm.c/h             手势状态机（SMF 驱动, 纯逻辑零硬件依赖）
+│     phone_control.c/h          旧版 V2 业务（麦克风吹气+AOA 编排）
+│     mic_hum.c/h                V2 麦克风采集
+│     职责: 状态机、策略、数据变换 —— 不碰寄存器/引脚
+│
+├── Drivers/                    驱动层（BSP, 纯设备访问, 无业务决策）
+│     ads1115.c/h  pressure.c/h  joystick.c/h      传感器链
+│     OLED.c/h  OLED_Font.h                        显示
+│     serial.c/h                                   多口串口底座
+│     sdio_sd.c/h  sdio_test.c/h  sw_udisk.c/h     存储 + MSC 协议
+│     ch32v30x_usbfs_device.c/h  usb_desc.c/h      USB 设备栈 + 描述符
+│     usbhs_dev.c/h  aoa_host.c/h                  USB 高速调试 + AOA 主机协议
+│
+├── Framework/                  移植的第三方框架
+│     smf.h  smf.c  smf_port.h                     Zephyr SMF（Apache-2.0）
+│
+├── Middleware/                 第三方中间件
+│     ff.c ff.h ffconf.h ffsystem.c ffunicode.c    FatFs
+│     diskio.c/h                                   FatFs↔SDIO 粘合
+│
+├── Common/                     配置唯一真源 + 板级 HAL
+│     Config.c/h  hal_gpio.c/h
+│
+├── Core/  Peripheral/  Debug/  Startup/  USB_Host/  Ld/   WCH SDK（原样不动）
+└── obj/  build.ps1  工程文件                                             （构建）</pre>
+
+<div class="ok"><b>依赖方向规则（评审新代码时照此把关）</b>: User → Services → Drivers → Common/SDK；Framework/Middleware 被上层引用、不反向依赖；Drivers 禁止 include Services；Services 禁止直接读寄存器（经 Drivers/Common HAL）。gesture_sm 保持零硬件依赖（可宿主单测的既有成果不许退化）。</div>
+
+<h2>三、文件迁移清单（34 个文件, 全部 git mv 保历史）</h2>
+<table>
+<tr><th>现位置</th><th>目标</th><th>文件</th></tr>
+<tr><td>Common/</td><td>Framework/</td><td>smf.h, smf.c, smf_port.h</td></tr>
+<tr><td>Common/</td><td>Services/</td><td>gesture_sm.c, gesture_sm.h</td></tr>
+<tr><td>Common/</td><td>Drivers/</td><td>serial.c, serial.h</td></tr>
+<tr><td>Phone/</td><td>Drivers/</td><td>ads1115.c/h, pressure.c/h, joystick.c/h, OLED.c/h, OLED_Font.h, sdio_sd.c/h, sdio_test.c/h, sw_udisk.c/h, ch32v30x_usbfs_device.c/h, usb_desc.c/h, usbhs_dev.c/h, aoa_host.c/h</td></tr>
+<tr><td>Phone/</td><td>Services/</td><td>phone_control.c/h, mic_hum.c/h</td></tr>
+<tr><td>Phone/</td><td>Middleware/</td><td>ff.c, ff.h, ffconf.h, ffsystem.c, ffunicode.c, diskio.c/h</td></tr>
+<tr><td>不动</td><td>—</td><td>User/ 全部, Common/Config.c/h, Common/hal_gpio.c/h, SDK 五目录, Ld/, obj/（重建）</td></tr>
+</table>
+<p><b>include 语句零改动</b>: 全工程引用均为裸文件名（<code>#include "pressure.h"</code>），只要编译器的 -I 覆盖全部新目录，所有 <code>#include</code> 原样有效。</p>
+
+<h2>四、构建系统改动（新建目录的 6 类改动 × 4）</h2>
+<table>
+<tr><th>#</th><th>改动</th><th>内容</th></tr>
+<tr><td>1</td><td>obj/{Drivers,Services,Framework,Middleware}/subdir.mk</td><td>新建 ×4（C_SRCS/C_DEPS/OBJS/编译规则, 从现有 subdir.mk 复制改路径）</td></tr>
+<tr><td>2</td><td>obj/makefile</td><td>-include 新 subdir.mk ×4</td></tr>
+<tr><td>3</td><td>obj/sources.mk</td><td>SUBDIRS 追加 ×4</td></tr>
+<tr><td>4</td><td>各 subdir.mk 编译规则 -I</td><td>追加 4 个新目录的 include 路径</td></tr>
+<tr><td>5</td><td>.cproject</td><td>option.c.compiler.include.paths 追加 ×4</td></tr>
+<tr><td>6</td><td>.wvproj</td><td>ccompiler.includes.include_paths 追加 ×4</td></tr>
+<tr><td>7</td><td>旧 obj/Phone、obj/Common 的 subdir.mk</td><td>清空对应条目（或删除后由 IDE 重新生成）</td></tr>
+</table>
+<div class="warn"><b>兜底</b>: .cproject 的 sourceEntries 为空字符串 = 整个工程根都是源路径，MounRiver IDE 构建一次会自动重新发现移动后的文件并重生成 obj——即使手改的 makefile 有遗漏，IDE 构建也是兜底修复点。命令行构建（build.ps1）依赖手改的 obj 文件。</div>
+
+<h2>五、根级与外围（阶段 B, 低风险）</h2>
+<table>
+<tr><th>项</th><th>动作</th></tr>
+<tr><td>VOICE_V307/bl.txt, bl2.txt</td><td>散落的串口日志 → 删除或移入 docs/log/（询问归属后处理）</td></tr>
+<tr><td>VOICE_V307/.mrs/</td><td>IDE 编码偏好 → .gitignore 追加 <code>.mrs/</code></td></tr>
+<tr><td>ARCHITECTURE.md</td><td>内容已过期两轮重构 → 按本文档目标布局刷新（或先标注"过期, 见 docs/目录规划"）</td></tr>
+<tr><td>hosttest/</td><td>位置正确（必须在 MounRiver 工程外），不动</td></tr>
+<tr><td>_local/ 备份</td><td>已被 git 忽略，保留（对象库修复期的 621MB 保险）</td></tr>
+<tr><td>voice_control/ Android 端</td><td>上帝文件（AccessibilityService 2208 行）分层问题独立立项，本规划不含</td></tr>
+</table>
+
+<h2>六、执行与回退</h2>
+<p><b>执行顺序（一次性纯移动, 不夹带任何逻辑修改）</b>:
+① git mv 全部文件 → ② 建 4 个新 obj/subdir.mk + 改 6 类构建文件 → ③ 命令行构建验证零警告 →
+④ 宿主 125 断言回归 → ⑤ 用户 IDE 打开构建一次（MounRiver 重新发现源文件）→ ⑥ 真机无回归后归档。</p>
+<p><b>回退方案</b>: 全程 git mv + 单一 commit, 出问题 <code>git revert</code> 一次回到现布局; 移动前后 .text/.bss 应完全一致（纯移动不改代码, map 差异只允许路径变化）。</p>
+<p><b>不做清单</b>: 不改任何函数体; 不重命名任何符号; 不动 WCH SDK 目录; 不在本轮触碰 voice_control/（范围外立项）。</p>
+
+<div class="footer">生成于 2026-10-15。执行前需确认: ① 是否立即执行阶段 A（固件目录重排）; ② bl.txt/bl2.txt 的归属处置。</div>
+
+</div>
+</body>
+</html>

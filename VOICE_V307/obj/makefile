@@ -11,8 +11,11 @@ RM := rm -rf
 -include User/subdir.mk
 -include USB_Host/subdir.mk
 -include Startup/subdir.mk
--include Phone/subdir.mk
+-include Services/subdir.mk
 -include Peripheral/src/subdir.mk
+-include Middleware/subdir.mk
+-include Framework/subdir.mk
+-include Drivers/subdir.mk
 -include Debug/subdir.mk
 -include Core/subdir.mk
 -include Common/subdir.mk
