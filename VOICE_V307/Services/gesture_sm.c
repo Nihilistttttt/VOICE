@@ -66,15 +66,15 @@ static const struct smf_state gs1_states[GS1_NUM] = {
  */
 static void gs1_blow_update(s1_sm_t *sm, int32_t p1, int32_t p2)
 {
-    if (!(sm->btn & 0x01) && p1 >= GS_PRESS_ON && p2 > -GS_IDLE_WIN && p2 < GS_IDLE_WIN) {
+    if (!(sm->btn & GS_BTN_LEFT) && p1 >= GS_PRESS_ON && p2 > -GS_IDLE_WIN && p2 < GS_IDLE_WIN) {
         if (++sm->blow_n >= GS_DEBOUNCE) {
-            sm->btn |= 0x01;
+            sm->btn |= GS_BTN_LEFT;
             sm->blow_n = GS_DEBOUNCE;   /* 钳在阈值, 防溢出且便于断言 */
         }
-    } else if ((sm->btn & 0x01) && p1 <= GS_PRESS_OFF) {
-        sm->btn &= (uint8_t)~0x01;
+    } else if ((sm->btn & GS_BTN_LEFT) && p1 <= GS_PRESS_OFF) {
+        sm->btn &= (uint8_t)~GS_BTN_LEFT;
         sm->blow_n = 0;
-    } else if (!(sm->btn & 0x01)) {
+    } else if (!(sm->btn & GS_BTN_LEFT)) {
         sm->blow_n = 0;
     }
 }
@@ -90,10 +90,10 @@ static void gs1_blow_update(s1_sm_t *sm, int32_t p1, int32_t p2)
 static void gs1_rclick_update(s1_sm_t *sm)
 {
     if (sm->rclick_pend == 2) {
-        sm->btn |= 0x04;            /* 中键 = EMUI 返回（右键无返回语义）*/
+        sm->btn |= GS_BTN_MIDDLE;            /* 中键 = EMUI 返回（右键无返回语义）*/
         sm->rclick_pend = 1;
     } else if (sm->rclick_pend == 1) {
-        sm->btn &= (uint8_t)~0x04;
+        sm->btn &= (uint8_t)~GS_BTN_MIDDLE;
         sm->rclick_pend = 0;
     }
 }
@@ -114,7 +114,7 @@ static enum smf_state_result gs1_idle_run(void *obj)
 
     /* 吸 engage: 原实现保留的 !(btn&0x02) 条件为死条件（0x02 位无人置位）,
      * 等价移植原样保留 */
-    if (!(sm->btn & 0x02) && sm->p1_tick <= -GS_PRESS_ON &&
+    if (!(sm->btn & GS_BTN_RIGHT) && sm->p1_tick <= -GS_PRESS_ON &&
         sm->p2_tick > -GS_IDLE_WIN && sm->p2_tick < GS_IDLE_WIN) {
         if (++sm->sip_n >= GS_DEBOUNCE) {
             sm->sip_n = GS_DEBOUNCE;

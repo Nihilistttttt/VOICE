@@ -1263,3 +1263,52 @@ smf.c 在 main 分支已从 subsys/smf/ 迁到 lib/smf/(老路径 404),
 .text=28336(v1 手写版 26932, SMF 库+entry 机制 +1.4KB)零警告,
 SMF 符号确认在镜像内; MODE=0 构建后 TEST_MODE 已按用户要求
 恢复为 0(用户刷 SMF 固件真机验证用)。
+
+----------------------------------------
+一百二十六、码道审计核查与修复 + 目录重构(Phone/拆除, 三层所有权落地)
+----------------------------------------
+
+背景: 用户转来码道审计报告(基线 bedbdbd), 要求核查后优化;
+随后批准目录架构优化方案(docs/VOICE_目录规划_20261015.html)。
+
+审计核查结论: 码道报告全部属实零误报, 补充三处——S8 恒真有两处
+(411/420), S4 遮蔽有三处(452/481), M1 的修复建议(加 force_release
+API)在 SMF 架构下不成立: kb.pend 已是镜像字段(恒≠1), SMF 状态
+驻留结构体断连自愈, 正确解法是删裸改而非加 API。
+
+审计修复(7 项):
+- S4/C2(高): 诊断打印 p1/p2 改名 dbg_p1/dbg_p2, 遮蔽三处全消
+- S8(中): ++home_n>=1 恒真改 HOME_KB_WAIT_TICKS 命名常量(两处)
+- M1(中): 删 if(kb.pend==1)kb.pend=2 死代码, 注释说明 SMF 自愈
+- S3/S1/S2(中): test_modes/phone_control 单行 if 与嵌套 for 补括号
+- S7(低): 按键位常量化 GS_BTN_LEFT/RIGHT/MIDDLE(7 处裸写替换)
+- S5(低): param_id switch 补 default
+Wontfix(附理由): S6 守卫风格(项目一致性优先) S9/S10 遗留命名
+C1 类型双关(上游设计保可 diff) C3/M2/M3 旧版V2路径(复活再改)
+C4 忙等有界(设计如此) M4 键盘三连(刻意保留的宏分支)
+
+目录重构(三层所有权, 依赖只向下):
+- git mv 41 文件全 R100: Phone/ 拆除 →
+  Services/(gesture_sm, phone_control, mic_hum)     业务层
+  Drivers/(ads1115, pressure, joystick, OLED, serial, sdio,  USB 栈等 12) 驱动层
+  Framework/(smf×3)  Middleware/(FatFs×7)            框架/中间件
+  Common/ 只剩 Config+hal_gpio(配置真源+HAL)
+- 构建接线: 新 subdir.mk ×4 + makefile/sources.mk + 10 处 -I 统一
+  sed + .cproject/.wvproj include 路径。include 语句全工程零改动。
+- .gitignore 追加 .mrs/(IDE 文件)
+
+踩坑:
+- 纯移动后 .text 28320→28360(+40B): 链接重排触发 relaxation 编码
+  差异(41 文件 R100 证明源码零改动, .bss/.data 完全一致)——与本库
+  记录的 OLED_Init 320→318 先例同性质, 尺寸小差异先查链接期重排。
+- .wvproj 的 sed 首次锚定行首缩进失败(8 个 tab 实为 7), 放宽匹配
+  用引号内内容定位成功——机器生成文件的缩进数不要数, 用内容锚定。
+- git add -A 会把工作区杂物(bl.txt/.mrs)一起暂存, 重构类大批量
+  操作后必须检查暂存区; .mrs/ 已进 .gitignore。
+
+验证: 用户真机测试通过("没问题"); hosttest 125/125(新路径 run.sh);
+MODE=0 固件 .text=28360 零警告; 提交拆两笔(审计修复/纯移动)保
+可回退性, TEST_MODE=0 归档。
+
+后续方向(用户定): 蓝牙版本(HC-05) + SD 卡参数持久化(灵敏度/阈值)
++ USBHS AOA 波形/参数配置通道 + 专用配置软件(复用既有项目骨架)。

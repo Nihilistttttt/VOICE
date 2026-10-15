@@ -309,6 +309,9 @@ void Mode_HidMouse(void)
 #if HOME_MODE == HOME_MODE_KEYBOARD
     uint8_t home_seq = 0;       /* 键盘三连: 1=AltTab下 2=起 3=等待 4=中键下 5=中键起 6=等待 7=Home下 8=Home起 */
     uint8_t home_n = 0;         /* 等待相计数 */
+/* 键盘三连的固定等待拍数: 原实现写成 ++home_n>=1 恒真(审计 S8), 语义就是
+ * 等 1 拍, 提为命名常量消除恒真并保住可调性 */
+#define HOME_KB_WAIT_TICKS  1
 #endif
 
     while (1) {
@@ -360,16 +363,16 @@ void Mode_HidMouse(void)
             int32_t x_off = (int32_t)x_raw - x_mid;
             int32_t y_off = (int32_t)y_raw - y_mid;
 
-            if (x_off > -500 && x_off < 500) x_off = 0;
-            if (y_off > -500 && y_off < 500) y_off = 0;
+            if (x_off > -500 && x_off < 500) { x_off = 0; }
+            if (y_off > -500 && y_off < 500) { y_off = 0; }
 
             int8_t mx = (int8_t)(-y_off / 128);
             int8_t my = (int8_t)(-x_off / 128);
 
-            if (mx > 64) mx = 64;
-            if (mx < -64) mx = -64;
-            if (my > 64) my = 64;
-            if (my < -64) my = -64;
+            if (mx > 64)  { mx = 64; }
+            if (mx < -64) { mx = -64; }
+            if (my > 64)  { my = 64; }
+            if (my < -64) { my = -64; }
 
             /* s1 单口手势（滚动期间状态冻结不推进, 与原门控一致）*/
             s1_out_t so;
@@ -407,8 +410,8 @@ void Mode_HidMouse(void)
                     KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
                     USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
                     home_seq = 3; home_n = 0; break;
-                case 3:   /* 等待 400ms: 多任务界面打开动画 */
-                    if (++home_n >= 1) { home_seq = 4; home_n = 0; }
+                case 3:   /* 等待 HOME_KB_WAIT_TICKS 拍: 多任务界面打开动画 */
+                    if (++home_n >= HOME_KB_WAIT_TICKS) { home_seq = 4; home_n = 0; }
                     break;
                 case 4:   /* 鼠标中键按下（EMUI: 中键=返回，关多任务 → 桌面）*/
                     mouse_report[0] = 0x04;
@@ -416,8 +419,8 @@ void Mode_HidMouse(void)
                 case 5:   /* 中键释放 → 桌面 */
                     mouse_report[0] = 0x00;
                     home_seq = 6; home_n = 0; break;
-                case 6:   /* 等待 300ms: 桌面稳定 */
-                    if (++home_n >= 1) { home_seq = 7; home_n = 0; }
+                case 6:   /* 等待 HOME_KB_WAIT_TICKS 拍: 桌面稳定 */
+                    if (++home_n >= HOME_KB_WAIT_TICKS) { home_seq = 7; home_n = 0; }
                     break;
                 case 7:   /* Home 按下（桌面 → 主页）*/
                     KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0x4A;
@@ -449,28 +452,31 @@ void Mode_HidMouse(void)
 
             cnt++;
             if ((cnt % 20) == 0) {
-                int32_t p1 = 0, p2 = 0;
+                /* 诊断打印专用副本(dbg_ 前缀): 不遮蔽外层的手势输入 p1/p2
+                 * (审计 S4/C2——同名遮蔽曾让维护者难以判断读写的是哪份) */
+                int32_t dbg_p1 = 0, dbg_p2 = 0;
                 uint8_t sat1 = 0, sat2 = 0;
 #if USE_PRESSURE
-                p1   = Pressure_ReadPa(PRESSURE_SENSOR_1);
-                p2   = Pressure_ReadPa(PRESSURE_SENSOR_2);
-                sat1 = Pressure_Saturated(PRESSURE_SENSOR_1);
-                sat2 = Pressure_Saturated(PRESSURE_SENSOR_2);
+                dbg_p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+                dbg_p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
+                sat1   = Pressure_Saturated(PRESSURE_SENSOR_1);
+                sat2   = Pressure_Saturated(PRESSURE_SENSOR_2);
 #endif
                 printf("X=%d Y=%d mx=%d my=%d btn=%d\r\n",
                        x_raw, y_raw, mx, my, mouse_report[0]);
 #if USE_PRESSURE
                 printf("[Pressure] s1=%ld Pa%s  s2=%ld Pa%s\r\n",
-                       p1, sat1 ? " [SAT]" : "",
-                       p2, sat2 ? " [SAT]" : "");
+                       dbg_p1, sat1 ? " [SAT]" : "",
+                       dbg_p2, sat2 ? " [SAT]" : "");
 #endif
             }
         } else {
             Delay_Ms(200);
-            /* 断连恢复(审计 F3): 未完成的回主页序列作废; 键盘若悬在
-             * "已按下"相则改为"待释放", 重连后先补释放帧防按键卡住 */
+            /* 断连恢复(审计 F3): 未完成的回主页序列作废。
+             * 键盘无需外部干预: SMF 状态驻留在 kb 结构体内, 若断连时悬在
+             * PRESSED 相（已发按下待释放）, 重连后第一次 kb_sm_step 会照常
+             * 补发释放帧——外部裸改镜像字段(审计 M1)既无效也不必要 */
             home_sm_abort(&hom);
-            if (kb.pend == 1) kb.pend = 2;
 #if HOME_MODE == HOME_MODE_KEYBOARD
             home_seq = 0;
 #endif
@@ -478,17 +484,17 @@ void Mode_HidMouse(void)
             printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
 #else
             /* 脱机测试：不等枚举，没主机也持续读传感器打印（含蓝牙广播）*/
-            int32_t p1 = 0, p2 = 0;
+            int32_t dbg_p1 = 0, dbg_p2 = 0;
             uint8_t sat1 = 0, sat2 = 0;
 #if USE_PRESSURE
-            p1   = Pressure_ReadPa(PRESSURE_SENSOR_1);
-            p2   = Pressure_ReadPa(PRESSURE_SENSOR_2);
-            sat1 = Pressure_Saturated(PRESSURE_SENSOR_1);
-            sat2 = Pressure_Saturated(PRESSURE_SENSOR_2);
+            dbg_p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            dbg_p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
+            sat1   = Pressure_Saturated(PRESSURE_SENSOR_1);
+            sat2   = Pressure_Saturated(PRESSURE_SENSOR_2);
 #endif
             printf("X=%d Y=%d (standalone)  s1=%ld Pa%s  s2=%ld Pa%s\r\n",
                    Joystick_GetX(), Joystick_GetY(),
-                   p1, sat1 ? " [SAT]" : "", p2, sat2 ? " [SAT]" : "");
+                   dbg_p1, sat1 ? " [SAT]" : "", dbg_p2, sat2 ? " [SAT]" : "");
 #endif
         }
     }

@@ -135,16 +135,22 @@ static void OLED_UpdateDisplay(uint16_t mean_a, uint16_t mean_b)
     OLED_ShowNum(2, 10, mean_b, 4);
 
     uint8_t ha = (mean_a > 500) ? 32 : (uint8_t)(mean_a * 32 / 500);
-    for (uint8_t x = 2; x < 61; x++)
-        for (uint8_t y = 0; y < ha; y++)
+    for (uint8_t x = 2; x < 61; x++) {
+        for (uint8_t y = 0; y < ha; y++) {
             OLED_SetPixel(x, 63 - y, 1);
+        }
+    }
 
     uint8_t hb = (mean_b > 500) ? 32 : (uint8_t)(mean_b * 32 / 500);
-    for (uint8_t x = 66; x < 125; x++)
-        for (uint8_t y = 0; y < hb; y++)
+    for (uint8_t x = 66; x < 125; x++) {
+        for (uint8_t y = 0; y < hb; y++) {
             OLED_SetPixel(x, 63 - y, 1);
+        }
+    }
 
-    for (uint8_t y = 32; y < 64; y++) OLED_SetPixel(63, y, 1);
+    for (uint8_t y = 32; y < 64; y++) {
+        OLED_SetPixel(63, y, 1);
+    }
 
     OLED_Refresh();
     oled_usb_ok = usb_ok;
@@ -280,6 +286,7 @@ void Phone_Control_Poll(void)
                     case 3: g_long_repeat_tick = val; break;
                     case 4: g_mid_max_tick    = val; break;
                     case 5: g_min_gap_tick    = val; break;
+                    default: break;     /* 未知参数号: 静默忽略（协议 0xFB 只定义 0~5）*/
                     }
 #endif
                     printf("[AOA] Param %d = %d\r\n", param_id, val);
