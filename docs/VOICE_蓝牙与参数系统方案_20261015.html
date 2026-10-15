@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOICE 蓝牙版本 + 参数系统 + 波形配置 方案设计</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.75; padding: 40px 20px; }
+  .container { max-width: 1000px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 48px 56px; }
+  h1 { font-size: 26px; border-bottom: 3px solid #27ae60; padding-bottom: 14px; margin-bottom: 8px; }
+  .meta { color: #7f8c9a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 20px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid #27ae60; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: #34495e; }
+  p, li { font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th { background: #27ae60; color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; }
+  td { border: 1px solid #dfe6ec; padding: 7px 10px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafb; }
+  pre { background: #2c3e50; color: #ecf0f1; padding: 16px 20px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.6; overflow-x: auto; }
+  code { background: #eef2f5; padding: 1px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 13px; color: #c0392b; }
+  .key { border-left: 4px solid #e67e22; background: #fdf6ec; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .ok { border-left: 4px solid #27ae60; background: #f4faf6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .q { border-left: 4px solid #9b59b6; background: #f5eef8; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .footer { margin-top: 44px; padding-top: 14px; border-top: 1px dashed #d5dbdb; color: #95a5a6; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>蓝牙版本 + 参数持久化 + 波形配置 方案设计（讨论稿）</h1>
+<div class="meta">2026-10-15 ｜ 状态: 设计稿, 待用户决策后实施 ｜ 复用资产: serial 底座 / FatFs / aoa_host / V2 协议 / voice_control App 骨架</div>
+
+<h2>一、三种运行形态总览</h2>
+<pre>┌─ 日常使用(现在) ── MODE=0: 摇杆+压差 → SMF状态机 → USBFS HID → 手机
+│                    零App依赖, 参数=编译期宏(本轮改为SD可调)
+│
+├─ 配置/调试(新增) ── 配置模式: USBHS AOA ↔ 手机配置App
+│                    波形上行(压力/摇杆实时曲线) + 参数下行(写SD)
+│                    ※ 手机在此模式是USB配件, 与MODE=0互斥(主机角色冲突)
+│
+└─ 蓝牙使用(新增) ── MODE=6(拟): 压差手势 → SMF → HC-05 SPP → 手机App
+                     App经无障碍注入执行(点/拖/滚/返回) — 必须有App
+                     电池供电脱离线缆的形态, HC-05板上已焊(USART3)</pre>
+
+<div class="key"><b>关键认知 1</b>: HC-05 是 SPP 透明串口桥（不是蓝牙 HID），蓝牙版本下 MCU 无法直接变成鼠标——<b>蓝牙版本必然依赖手机 App 做注入</b>，复用 voice_control 已验证的无障碍能力。</div>
+<div class="key"><b>关键认知 2</b>: USBFS(MODE=0, 手机是主机) 与 USBHS AOA(配置, MCU是主机) 的主机角色互斥——配置是"进厂/调试"形态，用模式切换进入，不影响日常 HID 使用。</div>
+
+<h2>二、参数系统（三者共同的地基, 先做）</h2>
+<h3>2.1 参数表 = 单一真源</h3>
+<p>现状: 灵敏度/阈值散在 gesture_sm.h 宏和 test_modes.c 局部变量里。新建 <code>Services/params.c/h</code>:</p>
+<pre>/* 参数表: 一处定义, 三处使用(SMF状态机/配置App下行/SD持久化) */
+typedef struct {
+    /* 摇杆 */
+    int32_t  joy_deadzone;      /* 死区计数      默认 500  */
+    int32_t  joy_step_div;      /* 步长分母      默认 128  */
+    int32_t  joy_clamp;         /* 单帧钳位      默认 64   */
+    /* 压差 */
+    int32_t  press_on;          /* 按下阈值 Pa   默认 250  */
+    int32_t  press_off;         /* 释放阈值 Pa   默认 150  */
+    int32_t  scroll_on;         /* 滚动进入      默认 150  */
+    int32_t  scroll_off;        /* 滚动退出      默认 100  */
+    int32_t  long_ms;           /* 长按判定 ms   默认 500  */
+    int32_t  vol_tilt;          /* 音量倾斜      默认 600  */
+    /* 回主页 */
+    int32_t  home_x_center;     /* 默认 540 */
+    int32_t  home_y_offset;     /* 默认 24  */
+    /* ...每项带 id, 对齐 0xFB 协议的 id+vH+vL */
+} voice_params_t;
+
+extern voice_params_t g_params;          /* 运行时真源 */
+void     Params_Default(void);           /* 装载默认值 */
+void     Params_Apply(void);             /* 下发到各状态机(替换读宏) */
+uint8_t  Params_SetById(uint8_t id, uint16_t val);   /* 0xFB 下行入口 */
+</pre>
+<p><b>改造点</b>: gesture_sm.h 的 GS_* 阈值宏 → 改读 <code>g_params</code> 字段（状态机已是参数化结构，改动集中在处理函数的常量引用处）；test_modes.c 的摇杆 128/64/500 同理。</p>
+
+<h3>2.2 SD 卡持久化（FatFs 已在工程）</h3>
+<table>
+<tr><th>项</th><th>设计</th></tr>
+<tr><td>文件</td><td><code>0:/voice_config.ini</code> — INI 风格 <code>key=value</code>, 人可读、可拔卡手改</td></tr>
+<tr><td>上电流程</td><td>SD_Init → f_mount → 读文件逐行解析 → 填 g_params → 越界值钳位到合法区间；<b>文件缺失/解析失败/SD 不在 → 用默认值并尝试写回</b>（自愈, 不阻塞进入模式）</td></tr>
+<tr><td>保存时机</td><td>显式"保存"命令触发（串口/AOA/蓝牙下行), 不自动写——防磨损、防调试期误存</td></tr>
+<tr><td>校验</td><td>每参数带 min/max 钳位表（结构体内), 拒绝危险值（如阈值 0 导致永触发）</td></tr>
+<tr><td>SD 缺席降级</td><td>MODE=0 照常运行（参数=默认值）; SD 是可选件不是依赖</td></tr>
+</table>
+
+<h2>三、配置模式: USBHS AOA 波形 + 参数（复用 V2 协议）</h2>
+<p>V2 时代已验证的协议直接复用, 不发明新协议:</p>
+<table>
+<tr><th>方向</th><th>帧</th><th>用途</th></tr>
+<tr><td>MCU→手机</td><td><code>0xFE + 4B</code> 能量包 / 扩展波形包</td><td>波形监测: 压力 s1/s2 原始值 + 摇杆 X/Y（建议 ~100Hz, 时分进现有 0xFA 采集包结构或定义 0xFB 波形包）</td></tr>
+<tr><td>手机→MCU</td><td><code>0xFB + id + vH + vL</code></td><td>参数下行（Params_SetById 直通参数表）</td></tr>
+<tr><td>手机→MCU</td><td><code>0xF9(拟)</code> + key</td><td>保存到 SD / 恢复默认 / 进入退出配置模式</td></tr>
+</table>
+<p><b>MCU 侧</b>: 新增配置模式函数（复用 aoa_host 连接管理 + 收发循环, V2 的 phone_control 就是模板——本轮审计已把它标记为"复活时按分层重写"的范本）。USBHS 是独立控制器, 与 USBFS(HID) 互不干扰, 模式切换即角色切换。</p>
+
+<h2>四、配置软件（手机 App）—— 复制 voice_control 去业务</h2>
+<p>按你的思路: <b>复制 voice_control 工程整包（Gradle/权限/AOA 连接管理/串口线程全保留）, 删业务代码</b>, 省掉全部环境配置:</p>
+<table>
+<tr><th>保留（骨架）</th><th>删除（V2 业务）</th><th>新增（配置功能）</th></tr>
+<tr><td>Gradle/SDK 配置、USB host 权限与设备枚举、AOA 连接管理、串口读写线程、波形绘制控件（若有）、界面框架</td><td>无障碍服务与手势注入、V2 手势命令映射、蓝牙（初版）</td><td>① 波形页: 实时曲线（s1/s2/X/Y 四通道 + 阈值线叠加）<br>② 参数页: 表单化读写（每参数: 名称/当前值/范围/默认按钮）<br>③ 保存/恢复按钮（下行 0xF9）<br>④ 连接状态栏</td></tr>
+</table>
+<p><b>建议</b>: 配置 App 与蓝牙手势 App <b>合并为一个 App 双角色</b>（配置页 + 蓝牙手势页），避免维护两个工程——无障碍权限两者共用。</p>
+
+<h2>五、蓝牙版本（MODE=6 拟）</h2>
+<table>
+<tr><th>环节</th><th>方案</th><th>复用</th></tr>
+<tr><td>硬件</td><td>HC-05 @ USART3 PD8/PD9（重映射, 网表已核实）</td><td>板上既有</td></tr>
+<tr><td>MCU 侧</td><td>serial 底座启用（SERIAL_ENABLE=1, RX=DMA+IDLE 断帧, TX=环形缓冲+TC）; 手势判定结果（点击/拖拽/滚动/返回）编码为协议帧上行; 参数下行同 0xFB</td><td>serial.c 现成, 只差接线</td></tr>
+<tr><td>HC-05 配置</td><td>AT 模式设名称/配对码/波特率——建议 9600→115200（波形上传需要带宽; 手势帧 9600 也够, 折中 57600）</td><td>CTRL 开关切 AT 口</td></tr>
+<tr><td>手机侧</td><td>App 蓝牙 SPP 连接 → 收协议帧 → 无障碍注入（与现有 voice_control 的注入逻辑同源）</td><td>voice_control 注入代码</td></tr>
+<tr><td>SMF 复用</td><td>gesture_sm 五状态机<b>原样复用</b>——它的输出是抽象命令（按键位/滚轮/命令）, HID 上报与蓝牙上报只是两个不同的"输出后端"</td><td>本次 SMF 化的红利</td></tr>
+</table>
+
+<h2>六、实施顺序（建议, 每步可独立验证）</h2>
+<table>
+<tr><th>#</th><th>阶段</th><th>交付物</th><th>验证</th></tr>
+<tr><td>1</td><td><b>参数表</b></td><td>Services/params.c/h + gesture_sm/test_modes 改读参数表 + 125 断言回归</td><td>行为零变化（默认值=现值）</td></tr>
+<tr><td>2</td><td><b>SD 持久化</b></td><td>config.ini 读写 + 上电加载 + 保存命令</td><td>改参数→断电→上电生效</td></tr>
+<tr><td>3</td><td><b>配置模式(MCU)</b></td><td>USBHS AOA 收发循环 + 波形包上行 + 0xFB 直通参数表</td><td>串口助手/既有 V2 App 看到波形</td></tr>
+<tr><td>4</td><td><b>配置 App</b></td><td>复制 voice_control 去业务 + 波形页 + 参数页</td><td>手机上调灵敏度→保存→MODE=0 立即可感</td></tr>
+<tr><td>5</td><td><b>蓝牙版本</b></td><td>serial 接线 + MODE=6 + App 蓝牙通道</td><td>脱线蓝牙操作手机</td></tr>
+</table>
+
+<h2>七、待你决策的四个问题</h2>
+<div class="q">
+<b>① 蓝牙形态确认</b>: 蓝牙版本=手机 App 注入（需 App 常驻 + 配对），与 USB HID 零 App 模式并存——两种用法都要，对吗？
+<br><b>② HC-05 波特率</b>: 9600（现配对默认，够手势帧）/ 57600（折中）/ 115200（波形+手势余量最大，需 AT 重配）？
+<br><b>③ App 合一</b>: 配置 App 与蓝牙手势 App 合并为一个双角色 App？（建议合并）
+<br><b>④ 参数集</b>: 2.1 节清单是否有遗漏（比如 CLICKNAV 的节奏 25ms/30ms 要不要也开放可调）？
+</div>
+
+<div class="ok"><b>风险提示</b>: ① USBHS AOA 与 USBFS HID 主机角色互斥——配置模式进出要有清晰的用户操作（物理开关或手势长按），防止日常使用误入; ② FatFs 在 MODE=0 从未链接过（此前只用于 U 盘/FatFs 测试模式），参数系统会把它首次带入正式路径——ROM 占用 +20~30KB 需评估（当前 28360/256K，充裕）; ③ SD 卡槽与 U 盘模式共用 SDIO——模式互斥关系要写清。</div>
+
+<div class="footer">设计稿 v1（2026-10-15）。决策①~④后进入实施, 按 1→5 顺序每步独立验证归档。</div>
+
+</div>
+</body>
+</html>

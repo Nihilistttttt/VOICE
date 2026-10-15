@@ -11,6 +11,8 @@
 #include "debug.h"
 #include "Config.h"
 #include "test_modes.h"
+#include "log.h"
+#include "serial_cmd.h"
 
 int main(void)
 {
@@ -18,6 +20,8 @@ int main(void)
     SystemCoreClockUpdate();
     Delay_Init();
     USART_Printf_Init(2000000);
+    Log_Init();    /* 分级日志: 串口立即输出, SD 后端在 Params_SD_Init 后附加 */
+    Cmd_Init();    /* 调试串口命令行(模式切换/保存/恢复出厂/日志级别) */
 
     printf("SystemClk:%d\r\n", SystemCoreClock);
     printf("ChipID:%08x\r\n", DBGMCU_GetCHIPID());

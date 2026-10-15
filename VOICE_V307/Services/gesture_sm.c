@@ -66,12 +66,12 @@ static const struct smf_state gs1_states[GS1_NUM] = {
  */
 static void gs1_blow_update(s1_sm_t *sm, int32_t p1, int32_t p2)
 {
-    if (!(sm->btn & GS_BTN_LEFT) && p1 >= GS_PRESS_ON && p2 > -GS_IDLE_WIN && p2 < GS_IDLE_WIN) {
-        if (++sm->blow_n >= GS_DEBOUNCE) {
+    if (!(sm->btn & GS_BTN_LEFT) && p1 >= g_params.press_on && p2 > -g_params.idle_win && p2 < g_params.idle_win) {
+        if (++sm->blow_n >= g_params.debounce) {
             sm->btn |= GS_BTN_LEFT;
-            sm->blow_n = GS_DEBOUNCE;   /* 钳在阈值, 防溢出且便于断言 */
+            sm->blow_n = g_params.debounce;   /* 钳在阈值, 防溢出且便于断言 */
         }
-    } else if ((sm->btn & GS_BTN_LEFT) && p1 <= GS_PRESS_OFF) {
+    } else if ((sm->btn & GS_BTN_LEFT) && p1 <= g_params.press_off) {
         sm->btn &= (uint8_t)~GS_BTN_LEFT;
         sm->blow_n = 0;
     } else if (!(sm->btn & GS_BTN_LEFT)) {
@@ -114,10 +114,10 @@ static enum smf_state_result gs1_idle_run(void *obj)
 
     /* 吸 engage: 原实现保留的 !(btn&0x02) 条件为死条件（0x02 位无人置位）,
      * 等价移植原样保留 */
-    if (!(sm->btn & GS_BTN_RIGHT) && sm->p1_tick <= -GS_PRESS_ON &&
-        sm->p2_tick > -GS_IDLE_WIN && sm->p2_tick < GS_IDLE_WIN) {
-        if (++sm->sip_n >= GS_DEBOUNCE) {
-            sm->sip_n = GS_DEBOUNCE;
+    if (!(sm->btn & GS_BTN_RIGHT) && sm->p1_tick <= -g_params.press_on &&
+        sm->p2_tick > -g_params.idle_win && sm->p2_tick < g_params.idle_win) {
+        if (++sm->sip_n >= g_params.debounce) {
+            sm->sip_n = g_params.debounce;
             smf_set_state(&sm->ctx, &gs1_states[GS1_TIMING]);   /* entry 清 sip_ms */
         }
     } else {
@@ -143,16 +143,16 @@ static enum smf_state_result gs1_timing_run(void *obj)
 
     gs1_blow_update(sm, sm->p1_tick, sm->p2_tick);
 
-    if (sm->p1_tick >= -GS_PRESS_OFF) {
+    if (sm->p1_tick >= -g_params.press_off) {
         /* 松口: 短吸(计时未达长按阈值)=中键点击; 计时归零回 IDLE */
-        if (sm->sip_ms < GS_LONG_MS) {
+        if (sm->sip_ms < g_params.long_ms) {
             sm->rclick_pend = 2;    /* 当拍由本 run 尾部的 rclick_update 按下 */
         }
         sm->sip_n = 0;
         smf_set_state(&sm->ctx, &gs1_states[GS1_IDLE]);
     } else {
         sm->sip_ms += GS_TICK_MS;
-        if (sm->sip_ms >= GS_LONG_MS) {
+        if (sm->sip_ms >= g_params.long_ms) {
             smf_set_state(&sm->ctx, &gs1_states[GS1_VOLUME]);   /* 吸住 → 音量 */
         }
     }
@@ -175,7 +175,7 @@ static enum smf_state_result gs1_volume_run(void *obj)
 
     gs1_blow_update(sm, sm->p1_tick, sm->p2_tick);
 
-    if (sm->p1_tick >= -GS_PRESS_OFF) {
+    if (sm->p1_tick >= -g_params.press_off) {
         sm->sip_n = 0;      /* 松口退出音量, 不发中键（长吸≠返回）*/
         smf_set_state(&sm->ctx, &gs1_states[GS1_IDLE]);
     }
@@ -257,10 +257,10 @@ static enum smf_state_result gscr_idle_run(void *obj)
 {
     scroll_sm_t *sm = (scroll_sm_t *)obj;
 
-    if (sm->p1_tick >= GS_SCROLL_ON && sm->p2_tick >= GS_SCROLL_ON) {
+    if (sm->p1_tick >= g_params.scroll_on && sm->p2_tick >= g_params.scroll_on) {
         sm->dir = -1;                               /* 双吹 = 上滚 */
         smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
-    } else if (sm->p1_tick <= -GS_SCROLL_ON && sm->p2_tick <= -GS_SCROLL_ON) {
+    } else if (sm->p1_tick <= -g_params.scroll_on && sm->p2_tick <= -g_params.scroll_on) {
         sm->dir = 1;                                /* 双吸 = 下滚 */
         smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
     }
@@ -284,7 +284,7 @@ static enum smf_state_result gscr_active_run(void *obj)
     int32_t a1 = (sm->p1_tick < 0) ? -sm->p1_tick : sm->p1_tick;
     int32_t a2 = (sm->p2_tick < 0) ? -sm->p2_tick : sm->p2_tick;
 
-    if (a1 < GS_SCROLL_OFF && a2 < GS_SCROLL_OFF) {
+    if (a1 < g_params.scroll_off && a2 < g_params.scroll_off) {
         smf_set_state(&sm->ctx, &gscr_states[GSCR_IDLE]);   /* 退出当拍不出格 */
         return SMF_EVENT_HANDLED;
     }
@@ -364,14 +364,14 @@ static enum smf_state_result gs2_idle_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
-    if (sm->p2_tick >= GS_PRESS_ON) {
-        if (++sm->blow_n >= GS_DEBOUNCE) {
-            sm->blow_n = GS_DEBOUNCE;
+    if (sm->p2_tick >= g_params.press_on) {
+        if (++sm->blow_n >= g_params.debounce) {
+            sm->blow_n = g_params.debounce;
             smf_set_state(&sm->ctx, &gs2_states[GS2_HOLD_BLOW]);
         }
-    } else if (sm->p2_tick <= -GS_PRESS_ON) {
-        if (++sm->sip_n >= GS_DEBOUNCE) {
-            sm->sip_n = GS_DEBOUNCE;
+    } else if (sm->p2_tick <= -g_params.press_on) {
+        if (++sm->sip_n >= g_params.debounce) {
+            sm->sip_n = g_params.debounce;
             smf_set_state(&sm->ctx, &gs2_states[GS2_HOLD_SIP]);
         }
     } else {
@@ -394,8 +394,8 @@ static enum smf_state_result gs2_hold_blow_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
-    if (sm->p2_tick <= GS_PRESS_OFF) {
-        if (sm->ms < GS_LONG_MS) {
+    if (sm->p2_tick <= g_params.press_off) {
+        if (sm->ms < g_params.long_ms) {
             sm->cmd_out = S2_ALTTAB;    /* 短吹松口 → 多任务切换 */
         }
         smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
@@ -418,8 +418,8 @@ static enum smf_state_result gs2_hold_sip_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
-    if (sm->p2_tick >= -GS_PRESS_OFF) {
-        if (sm->ms < GS_LONG_MS) {
+    if (sm->p2_tick >= -g_params.press_off) {
+        if (sm->ms < g_params.long_ms) {
             sm->cmd_out = S2_HOME;      /* 短吸松口 → 回主页 */
         }
         smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
@@ -622,7 +622,7 @@ static enum smf_state_result ghome_flood_run(void *obj)
     sm->move = 1;
     sm->dx = -128;
     sm->dy = 127;
-    if (++sm->n >= HOME_FLOOD_TICKS) {
+    if (++sm->n >= g_params.home_flood_ticks) {
         smf_set_state(&sm->ctx, &ghome_states[GHOME_X]);
     }
     return SMF_EVENT_HANDLED;
@@ -642,7 +642,7 @@ static enum smf_state_result ghome_x_run(void *obj)
     home_sm_t *sm = (home_sm_t *)obj;
 
     sm->move = 1;
-    sm->dx = (int8_t)(HOME_X_CENTER_COUNTS / 5);
+    sm->dx = (int8_t)(g_params.home_x_center / HOME_X_TICKS);
     sm->dy = 0;
     if (++sm->n >= HOME_X_TICKS) {
         smf_set_state(&sm->ctx, &ghome_states[GHOME_Y]);
@@ -664,7 +664,7 @@ static enum smf_state_result ghome_y_run(void *obj)
 
     sm->move = 1;
     sm->dx = 0;
-    sm->dy = (int8_t)(-HOME_Y_NAV_OFFSET);
+    sm->dy = (int8_t)(-g_params.home_y_offset);
     smf_set_state(&sm->ctx, &ghome_states[GHOME_DOWN]);
     return SMF_EVENT_HANDLED;
 }
@@ -781,8 +781,8 @@ uint16_t home_sm_pacing_ms(home_phase_t phase)
     case HOME_FLOOD:  return 0;
     case HOME_X:
     case HOME_Y:
-    case HOME_DOWN:   return 25;
-    case HOME_HOLD:   return 30;
+    case HOME_DOWN:   return g_params.locate_ms;
+    case HOME_HOLD:   return g_params.click_hold_ms;
     default:          return 50;
     }
 }

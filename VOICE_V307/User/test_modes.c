@@ -23,6 +23,8 @@
 #include "sw_udisk.h"
 #include "ch32v30x_usbfs_device.h"
 #include "OLED.h"
+#include "log.h"
+#include "serial_cmd.h"
 #elif TEST_MODE == 3
 #include "sdio_sd.h"
 #include "ff.h"
@@ -38,6 +40,10 @@
 #include "joystick.h"
 #include "pressure.h"
 #include "gesture_sm.h"
+#include "params.h"
+#include "params_sd.h"
+#include "log.h"
+#include "serial_cmd.h"
 #include "ads1115.h"
 #elif TEST_MODE == 5
 #include "phone_control.h"
@@ -69,7 +75,7 @@ void Mode_Udisk(void)
 {
     SD_Error sd_err;
 
-    printf("=== USB MSC U-Disk Mode ===\r\n");
+    LOGI("udisk", "U 盘模式启动");
 
     OLED_Init();
     OLED_Clear();
@@ -78,12 +84,15 @@ void Mode_Udisk(void)
 
     sd_err = SD_Init();
     if (sd_err != SD_OK) {
-        printf("SD_Init failed: %d\r\n", sd_err);
+        LOGE("udisk", "SD_Init 失败: %d", sd_err);
         OLED_ShowString(1, 0, "SD FAIL");
         OLED_Refresh();
         while (1);
     }
-    printf("SD_Init OK\r\n");
+    LOGI("udisk", "SD_Init OK");
+    /* U 盘模式把 SD 导出给 USB 主机 —— FatFs/日志后端必须让位(双主保护),
+     * 此后 LOGx 仅串口输出, 缓冲数据滞留 RAM 不落盘 */
+    Log_SD_Suspend();
     printf("Cap: %d MB\r\n", (u32)(SDCardInfo.CardCapacity >> 20));
 
     Udisk_Capability = SDCardInfo.CardCapacity / 512;
@@ -107,6 +116,7 @@ void Mode_Udisk(void)
     OLED_Refresh();
 
     while (1) {
+        Cmd_Poll(0);        /* 串口命令: 仅 log=N/ver 可用(SD 已导出, 禁写) */
         if (USBFS_DevEnumStatus) {
             OLED_ShowString(0, 10, "ENUM");
         } else {
@@ -268,12 +278,20 @@ void Mode_HidMouse(void)
     uint8_t mouse_report[5] = {0, 0, 0, 0, 0};   /* [4]=Consumer: bit0=VolUp bit1=VolDown */
     u32     cnt = 0;
 
-    printf("=== USBFS HID Joystick Mouse Mode ===\r\n");
+    LOGI("hid", "USBFS HID 手势模式启动");
+
+#if USE_SDCARD
+    /* 参数/SD 最先初始化 —— SD 的自愈写要赶在 USBFS 启动之前完成:
+     * USBFS 中断与 SDIO 同优先级 0, SD 在 USBFS 活跃时读写会超时
+     * (MODE=2 的实测教训, 已在 Params_SD_Init 内切轮询模式双保险) */
+    Params_SD_Init();
+    Log_SD_Attach();    /* 挂载成功 → 日志文件生效, 此后 LOGx 全部落 SD */
+#endif
 
     Joystick_Init();
     USBFS_RCC_Init();
     USBFS_Device_Init(ENABLE);
-    printf("USBFS HID ready, calibrating joystick...\r\n");
+    LOGI("hid", "摇杆校准中...");
 
     Delay_Ms(100);
     Joystick_GetX(); Joystick_GetY();
@@ -288,7 +306,7 @@ void Mode_HidMouse(void)
     }
     x_mid = (x_n > 0) ? x_sum / x_n : 8800;
     y_mid = (y_n > 0) ? y_sum / y_n : 8800;
-    printf("Calibrated: Xmid=%ld Ymid=%ld (%d/%d samples)\r\n", x_mid, y_mid, x_n, y_n);
+    LOGI("hid", "校准: Xmid=%ld Ymid=%ld (%d/%d)", x_mid, y_mid, x_n, y_n);
 
 #if USE_PRESSURE
     /* 压差传感器与摇杆同走 ADS1115，借本模式一并验证 */
@@ -316,6 +334,8 @@ void Mode_HidMouse(void)
 
     while (1) {
         if (USBFS_DevEnumStatus) {
+            Log_Service();      /* 日志限频刷 SD(缓冲有积压且超时时才真正写) */
+            Cmd_Poll(1);        /* 调试串口命令(mode/save/factory/log) */
             /* 节奏策略: 回主页序列按相选择, 其余 50ms/圈
              * ★ Android 指针加速度把"发多快"耦合进"走多远": 冲角段可快发
              *   (钳位兜底), X/Y 定位段必须 25ms/帧, 点击保持 30ms */
@@ -363,16 +383,16 @@ void Mode_HidMouse(void)
             int32_t x_off = (int32_t)x_raw - x_mid;
             int32_t y_off = (int32_t)y_raw - y_mid;
 
-            if (x_off > -500 && x_off < 500) { x_off = 0; }
-            if (y_off > -500 && y_off < 500) { y_off = 0; }
+            if (x_off > -g_params.joy_deadzone && x_off < g_params.joy_deadzone) { x_off = 0; }
+            if (y_off > -g_params.joy_deadzone && y_off < g_params.joy_deadzone) { y_off = 0; }
 
-            int8_t mx = (int8_t)(-y_off / 128);
-            int8_t my = (int8_t)(-x_off / 128);
+            int8_t mx = (int8_t)(-y_off / g_params.joy_step_div);
+            int8_t my = (int8_t)(-x_off / g_params.joy_step_div);
 
-            if (mx > 64)  { mx = 64; }
-            if (mx < -64) { mx = -64; }
-            if (my > 64)  { my = 64; }
-            if (my < -64) { my = -64; }
+            if (mx > g_params.joy_clamp)  { mx = g_params.joy_clamp; }
+            if (mx < -g_params.joy_clamp) { mx = -g_params.joy_clamp; }
+            if (my > g_params.joy_clamp)  { my = g_params.joy_clamp; }
+            if (my < -g_params.joy_clamp) { my = -g_params.joy_clamp; }
 
             /* s1 单口手势（滚动期间状态冻结不推进, 与原门控一致）*/
             s1_out_t so;
@@ -388,7 +408,7 @@ void Mode_HidMouse(void)
             uint8_t cons = 0;
             if (so.volume_active) {
                 mx = 0; my = 0;
-                cons = (y_off < -GS_VOL_TILT) ? 0x01 : (y_off > GS_VOL_TILT) ? 0x02 : 0;
+                cons = (y_off < -g_params.vol_tilt) ? 0x01 : (y_off > g_params.vol_tilt) ? 0x02 : 0;
             }
 
             mouse_report[0] = so.btn;
@@ -481,7 +501,7 @@ void Mode_HidMouse(void)
             home_seq = 0;
 #endif
 #if HID_REQUIRE_PHONE
-            printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
+            LOGD("hid", "等待枚举 Enum=%d", USBFS_DevEnumStatus);
 #else
             /* 脱机测试：不等枚举，没主机也持续读传感器打印（含蓝牙广播）*/
             int32_t dbg_p1 = 0, dbg_p2 = 0;

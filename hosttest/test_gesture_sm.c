@@ -236,7 +236,7 @@ static void test_home_full_sequence(void)
     /* X ×5: 每拍 +108 */
     for (i = 0; i < 4; i++) {
         home_sm_step(&hm, &ho);
-        CHECK(ho.move == 1 && ho.dx == (int8_t)(HOME_X_CENTER_COUNTS / 5) && ho.dy == 0);
+        CHECK(ho.move == 1 && ho.dx == (int8_t)(g_params.home_x_center / 5) && ho.dy == 0);
         CHECK(hm.phase == HOME_X);
     }
     home_sm_step(&hm, &ho);
@@ -244,7 +244,7 @@ static void test_home_full_sequence(void)
 
     /* Y ×1: -24 */
     home_sm_step(&hm, &ho);
-    CHECK(ho.move == 1 && ho.dx == 0 && ho.dy == -HOME_Y_NAV_OFFSET);
+    CHECK(ho.move == 1 && ho.dx == 0 && ho.dy == -g_params.home_y_offset);
     CHECK(hm.phase == HOME_DOWN);
     CHECK(home_sm_pacing_ms(HOME_DOWN) == 25);
 

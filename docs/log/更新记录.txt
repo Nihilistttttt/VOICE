@@ -1312,3 +1312,59 @@ MODE=0 固件 .text=28360 零警告; 提交拆两笔(审计修复/纯移动)保
 
 后续方向(用户定): 蓝牙版本(HC-05) + SD 卡参数持久化(灵敏度/阈值)
 + USBHS AOA 波形/参数配置通道 + 专用配置软件(复用既有项目骨架)。
+
+----------------------------------------
+一百二十七、SD 参数持久化 + 分级日志/串口 CLI + 烧录调试规范(f fr=6 根因闭环)
+----------------------------------------
+
+背景: 用户决策——蓝牙取消(HC-05 是 SPP 桥非 HID, 无法直接变鼠标);
+SD 参数持久化正常进行; USBFS(患者手机 HID)+USBHS(调试手机 AOA)双
+控制器可并行(此前互斥判断作废); 参数"能放就放"+必须恢复出厂。
+
+实质更新:
+1. 参数系统: Services/params.h/c —— 16 参数单一真源 g_params(摇杆
+   灵敏度/压差阈值/CLICKNAV 常数等), 描述符表(id/名/默认/min/max
+   钳位), SetById(0xFB 直通预留)/SetByName/FactoryReset;
+   gesture_sm 30 处 + test_modes 9 处宏引用改读 g_params(GS_* 阈值
+   宏退役, GS_TICK_MS/HOME_X_TICKS/GS_BTN_* 结构性保留)。
+2. SD 持久化: Services/params_sd.c(USE_SDCARD 门控)——/1:/params.ini
+   上电加载, 缺失自愈写默认模板, SD 不在静默降级; Save 显式触发防
+   磨损; FactoryReset+落盘=恢复出厂入口。Config.h 加 BOARD_HAS_SDCARD/
+   USE_SDCARD 两层开关。
+3. 分级日志: Services/log.h/c —— LOGE/W/I/D + 标签, 双后端(串口立即
+   +SD 攒批限频≥5s/≥80%), 丢弃计数, SD 失败自动摘除(串口永在),
+   MODE=2 Suspend 防双主, 文件轮转 64KB, BKP 启动序号 BOOT 头。
+   serial_cmd.c: 串口 CLI(save/factory/log=N/ver/help; mode 切换预留
+   待 USBFS 栈运行时化)。
+4. 烧录调试规范: docs/烧录与串口调试规范.md(固定操作手册)+项目内
+   flash_v307.cfg(OpenOCD/WCH-LinkE)+serial_log.py(常驻监听, 新启动
+   自动删旧日志)。
+
+fr=6 根因闭环(串口日志取证, COM9 抓启动序列):
+- [W]配置打开失败(读) fr=6 → 根因: voice_config.ini 主名 12 字符非
+  8.3 短名, FatFs FF_USE_LFN=0 下长名一律 FR_INVALID_NAME
+- 修复: 路径改 8.3(params.ini/log.txt/log.old) → 真机验证自愈闭环:
+  [W]配置打开失败(读) fr=4(FR_NO_FILE, 文件被删) → [I]配置已写回 SD
+  → 下次启动 [I]配置已从 SD 加载 → 完整闭环
+- 认知修正: 烧录成功(Verified OK)=芯片自动复位重启新固件——此前
+  "复位无效/需手动上电"的判断源于两次烧录失败(驱动名错)的误读
+
+烧录链路(OpenOCD+WCH-LinkE, 已沉淀 flash_v307.cfg):
+- 配置必须用 MounRiver 自带 bin/wch-riscv.cfg 的写法: adapter driver
+  wlinke + transport sdi + wlink_set_address + target wch_riscv +
+  flash bank wch_riscv(scripts/ 下同名文件是旧 JTAG 模板不可用)
+- 驱动名 wch_riscv(非符号前缀 wch_riscv_flash/ch32vx)
+- 本板 LinkE 未接复位线: reset run 命令无效; 烧录成功即复位(用户
+  经验+本次验证一致)
+
+新理解:
+- 8.3 短名是 FatFs 无 LFN 配置下的硬约束——所有落盘文件名必须过
+  8.3 检查(文件名/卷标/路径全部)
+- 日志系统是"自证工具": SD 参数系统的失败原因由日志系统自动落盘
+  取证, 调试不再依赖串口在线——这是"帮我省事"诉求的结构性解法
+- EasyLogger/ulog/Zephyr 三家的共同内核(入队-延后消化-双级过滤-
+  丢弃计数)约 250 行即可自研, 引库的价值在边角功能而非内核
+
+验证: hosttest 125/125; MODE=0 .text=40180(含 FatFs)零警告; 真机
+闭环三连(删配置→自愈→加载)通过, BOOT #6→#7 计数正确; U 盘模式
+确认卡上 PARAMS.INI(253B 默认模板)/LOG.TXT(BOOT 头)存在。

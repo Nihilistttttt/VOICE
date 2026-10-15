@@ -71,6 +71,7 @@
 #define BOARD_HAS_JOYSTICK   0
 #define BOARD_HAS_PRESSURE   0
 #define BOARD_HAS_AOA_PWR    0
+#define BOARD_HAS_SDCARD     0
 #elif defined(BOARD_V3)        /* 压差传感器板：PB5 经 P-MOS 控制 */
 #define BOARD_HAS_MIC_HUM    0
 #define BOARD_HAS_OLED       1
@@ -78,6 +79,7 @@
 #define BOARD_HAS_JOYSTICK   1
 #define BOARD_HAS_PRESSURE   1
 #define BOARD_HAS_AOA_PWR    1
+#define BOARD_HAS_SDCARD     1
 #else
 #error "未知板型：请定义 BOARD_V2 或 BOARD_V3"
 #endif
@@ -100,6 +102,7 @@
 #define USE_JOYSTICK    1    /* 摇杆                [板:V2=0 V3=1] */
 #define USE_PRESSURE    1    /* 压差传感器          [板:V2=0 V3=1] */
 #define USE_AOA_PWR     1    /* 手机供电控制        [板:V2=0 V3=1] */
+#define USE_SDCARD      1    /* SD 卡(参数持久化)   [板:V2=0 V3=1] */
 
 /*---- 一致性检查：特性开关不能超出板级能力 -------------------------------*/
 #if USE_MIC_HUM && !BOARD_HAS_MIC_HUM
@@ -116,6 +119,9 @@
 #endif
 #if USE_AOA_PWR && !BOARD_HAS_AOA_PWR
 #error "USE_AOA_PWR=1，但当前板型没有手机供电电路"
+#endif
+#if USE_SDCARD && !BOARD_HAS_SDCARD
+#error "USE_SDCARD=1，但当前板型没有 SD 卡槽"
 #endif
 
 /*============================================================================

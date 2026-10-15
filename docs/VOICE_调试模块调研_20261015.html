@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>嵌入式受限系统调试模块调研与 VOICE 设计建议</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.75; padding: 40px 20px; }
+  .container { max-width: 1020px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 48px 56px; }
+  h1 { font-size: 26px; border-bottom: 3px solid #8e44ad; padding-bottom: 14px; margin-bottom: 8px; }
+  .meta { color: #7f8c9a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 20px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid #8e44ad; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: #34495e; }
+  p, li { font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th { background: #8e44ad; color: #fff; padding: 8px 10px; text-align: left; font-weight: 600; }
+  td { border: 1px solid #dfe6ec; padding: 7px 10px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafb; }
+  pre { background: #2c3e50; color: #ecf0f1; padding: 16px 20px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.6; overflow-x: auto; }
+  code { background: #eef2f5; padding: 1px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 13px; color: #c0392b; }
+  .key { border-left: 4px solid #e67e22; background: #fdf6ec; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .ok { border-left: 4px solid #27ae60; background: #f4faf6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .q { border-left: 4px solid #9b59b6; background: #f5eef8; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .footer { margin-top: 44px; padding-top: 14px; border-top: 1px dashed #d5dbdb; color: #95a5a6; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>嵌入式资源受限系统调试模块调研<br>—— 与 VOICE 设计建议</h1>
+<div class="meta">2026-10-15 ｜ 调研对象: Zephyr logging(v2, 上游源码) / RT-Thread ulog / EasyLogger(Armink) / Segger RTT / 裸机朴素 printf ｜ 方法: 网络资料 + Zephyr 上游源码本地取证(blobless clone 按需取) + VOICE 约束对照 ｜ 交付: 设计建议, 实施待确认</div>
+
+<h2>一、一句话结论</h2>
+<div class="ok"><b>业界在"资源受限 + 调试"上的收敛答案是同一个</b>: 调用点只做<b>极快的入队</b>（拷贝到 RAM 缓冲），<b>格式化与输出延后</b>由低优先级路径消化，输出走<b>可插拔后端</b>，过滤分<b>编译期裁剪</b>与<b>运行时级别/标签</b>两级，缓冲满时<b>丢弃并计数而非阻塞</b>。四个主流实现（Zephyr logging / RT-Thread ulog / EasyLogger / Segger RTT）只是把"谁来消化"回答得不同: Zephyr 用专用线程，ulog 用线程或 idle 钩子，EasyLogger 用缓冲+手动 flush，RTT 交给调试探针。<b>裸机主循环里，"主循环每圈调一次 Log_Service()"就是 idle 钩子的等价物</b>——这是 ulog 文档明确背书的裸机形态。</div>
+
+<h2>二、四大实现对照</h2>
+<table>
+<tr><th style="width:14%">维度</th><th style="width:22%">Zephyr logging v2</th><th style="width:22%">RT-Thread ulog</th><th style="width:22%">EasyLogger (Armink)</th><th style="width:20%">Segger RTT</th></tr>
+<tr><td><b>架构</b></td><td>前端(过滤+入队) → 核心 → 多后端(vtable: process/dropped/panic/init)，后端静态注册表</td><td>核心 + 后端注册表(output/flush/deinit 函数指针)，插件式</td><td>内核(单例全局配置) + 移植层(elog_port) + 插件(Flash/File/Async)</td><td>控制块 + 上/下行环形缓冲，调试探针后台取数</td></tr>
+<tr><td><b>模式</b></td><td>Deferred(入队微秒级, 后台格式化) / Immediate(内联, 危险) / Minimal(最省) / Panic(阻塞化)</td><td>同步(默认, 中断日志仅控制台后端) / 异步(缓冲 2048B + 专用线程或 idle 钩子)</td><td>同步 / 异步(缓冲+任务) / <b>缓冲模式</b>(RAM 攒够或手动 flush)</td><td>每通道可配: 非阻塞 Skip(丢新) / Trim / 阻塞 Block</td></tr>
+<tr><td><b>级别与过滤</b></td><td>ERR/WRN/INF/DBG + HEXDUMP；编译期按模块裁剪(gc)；运行时按后端×模块独立过滤；限速宏(防刷屏)；ONCE 宏</td><td>同六级 + ASSERT；<b>按 tag 动态调级别</b>(ulog_tag_lvl_filter_set + shell 命令)；关键字过滤</td><td>对齐 Android Logcat(Assert0~Verbose5)；静态宏裁剪 + 动态 API；按<b>标签/级别/关键词</b>过滤；颜色</td><td>无内建(是传输层不是日志系统)</td></tr>
+<tr><td><b>持久化后端</b></td><td>任意自定义后端(UART/RTT/网络 syslog)</td><td>File 后端示例(带 ulog_file_backend_enable)</td><td><b>File 插件(轮转: x.log→x.log.0→.1)</b> + Flash 插件(无文件系统时)</td><td>—</td></tr>
+<tr><td><b>满溢策略</b></td><td>丢弃 + <b>丢弃计数上报(dropped 是后端一等公民)</b></td><td>异步缓冲满则丢弃</td><td>Flash 缓冲模式攒批写(降磨损)</td><td>Skip=丢新不阻塞(推荐默认)</td></tr>
+<tr><td><b>资源</b></td><td>重(子系统级, 为 RTOS 设计)</td><td>中(异步需缓冲+线程)</td><td><b>ROM&lt;1.6K RAM&lt;0.3K(核心)</b>, 明确支持裸机</td><td>RAM 数 KB, CPU 开销=一次内存拷贝</td></tr>
+<tr><td><b>裸机适配</b></td><td>需裁剪(为 RTOS 设计, 无线程时退化困难)</td><td>idle 钩子形态即裸机形态(文档明示)</td><td>原生支持裸机, 缓冲模式无需任务</td><td>天然裸机</td></tr>
+</table>
+
+<h2>三、核心设计维度 × VOICE 约束分析</h2>
+
+<h3>D1 调用点开销 —— 热循环预算是硬约束</h3>
+<p>VOICE 的 MODE=0 主循环 50ms/圈驱动指针，<b>任何内联的慢输出都是指针卡顿</b>。现状 printf 走 2M 串口阻塞发送（一行 ~100B ≈ 0.5ms，尚可但格式化开销在内），SD 写一次 f_write（轮询模式）数 ms——<b>绝不可以在调用点直接写 SD</b>。Zephyr 的 deferred 与 EasyLogger 的 buffered 模式给出同一答案: <b>调用点 = 格式化 + 拷贝进 RAM 缓冲（~µs 级），SD 消化延后</b>。我们 2M 波特率的串口足够快，可以保留"串口立即输出"；SD 走缓冲。</p>
+
+<h3>D2 消化者 —— 裸机没有日志线程，主循环就是 idle</h3>
+<p>Zephyr 用专用线程、ulog 用线程或 <b>idle 钩子</b>。裸机超循环的等价物: <b>主循环每圈调用 Log_Service()</b>，它只在"RAM 缓冲有积压 + 距上次刷新超过阈值"时才真正写 SD（限频，例如 ≥5s 或缓冲 ≥80%）。这样 SD 写频率被压到最低（MODE=0 运行期日志量很小），单次阻塞 ~几 ms 且罕见——不会形成可感知的指针卡顿。</p>
+
+<h3>D3 后端可插拔 —— 需要两个，注册表做小</h3>
+<p>VOICE 需要: <b>串口后端（立即）</b> + <b>SD 文件后端（缓冲）</b>。ulog/Zephyr 的完整注册表是为任意多后端设计的；EasyLogger 干脆单例。VOICE 恰好两个、无第三方插件需求 → <b>固定双后端 + 极简接口</b>（比 vtable 注册表省 ROM 且更直白），将来要第三后端再泛化。</p>
+
+<h3>D4 过滤 —— 三级都要，但各取最简形态</h3>
+<ul>
+<li><b>编译期</b>: <code>LOG_LEVEL_COMPILE</code> 下限，低于它的调用被 <code>#if</code> 剪成空——发布版可整体剥离 DEBUG（gc-sections 配合）</li>
+<li><b>运行时全局级别</b>: 串口命令 <code>log=N</code> 实时调（默认 DEBUG 便于调试期）</li>
+<li><b>标签</b>: 每条日志带模块标签（<code>hid</code>/<code>params</code>/<code>sd</code>/<code>sm</code>…），按 EasyLogger/ulog 的 tag 概念；<b>per-tag 动态级别</b>是 ulog 的加分项——简版实现（一张 tag→level 小表）成本低，建议采纳</li>
+</ul>
+
+<h3>D5 SD 文件后端的四个专属问题（VOICE 特有约束）</h3>
+<table>
+<tr><th>问题</th><th>结论（含调研出处）</th></tr>
+<tr><td><b>a. 热循环阻塞预算</b></td><td>缓冲攒批 + 限频刷新（D2）；单次 f_write ≤512B 轮询模式数 ms；丢弃优于阻塞——RTT 的 Skip 模式哲学与 Zephyr 的 drop+计数一致</td></tr>
+<tr><td><b>b. MODE=2 并发冲突（本项目特有）</b></td><td>U 盘模式把 SD 经 USB 导出给 PC——<b>FatFs 此时绝不能写卡</b>（双主损坏）。方案: 模式进入/退出时 <code>Log_SD_Suspend()/Resume()</code>；挂起期间日志只进 RAM（环形覆盖）不落盘。这条 EasyLogger/Zephyr 都不会替我们处理——是 VOICE 专属设计点</td></tr>
+<tr><td><b>c. 磨损与容量</b></td><td>追加写 + <b>单代轮转</b>: 打开时查 size &gt;64KB → rename <code>voice_log.txt</code>→<code>voice_log.old</code> 后重建（EasyLogger File 插件的轮转思想，简化为一代）；SD 扇区写频被 D2 限频压到极低，磨损无忧</td></tr>
+<tr><td><b>d. SD 不可用降级</b></td><td>SD_Init/mount/写任一失败 → 后端标记不可用、缓冲转环形丢弃、<b>串口输出永不停止</b>——日志系统自身故障不允许拖垮业务（"日志必须无害"是所有四家实现共同的隐含铁律）</td></tr>
+</table>
+
+<h3>D6 panic / 故障取证 —— 留扩展点</h3>
+<p>Zephyr 的 panic 模式（错误时切阻塞保输出）与 EasyLogger 的"异常时关锁"指向同一需求: <b>致命错误前的最后几行最有价值</b>。VOICE 方案: <code>Log_FlushNow()</code> 暴露给致命路径（硬fault 前的钩子/看门狗前）强制刷 SD；进阶（二期）: 末尾 N 行日志驻留 <code>.noinit</code> RAM，下次启动作为"上次运行遗言"写入 SD（黑匣子模式）——本轮只留接口。</p>
+
+<h3>D7 波形 ≠ 日志 —— 职责分离</h3>
+<p>波形监测（压力/摇杆曲线）是高频二进制流，走文本日志既浪费又难解析——<b>波形走专用二进制通道（AOA 波形包），日志只放人类可读事件</b>。这是 Zephyr（LOG_HEXDUMP 与普通日志分列）和 RTT（多通道分流）共同的结构性建议。参数系统的波形上行将来不复用日志后端。</p>
+
+<h2>四、推荐架构（VOICE 版，吸收四家机制）</h2>
+<pre>调用点:  LOGE("params","open fail %d", rc);   ← 宏: 级别编译期下限 + 运行时级别 + 标签
+              │ ① 格式化成行 "[E][params] open fail -1"(~µs, vsnprintf)
+              ▼
+     ┌─────────────────────┐
+     │ RAM 行缓冲(512B×2)   │ ← 双缓冲: 一块攒批, 一块刷写, 交替
+     └─────────┬───────────┘
+               │ ② 串口后端(立即): printf 已发出的行不重复 → 只走 SD 缓冲?
+               │    (设计: 串口即时输出 + SD 攒批, 两条独立路径)
+               ▼
+   串口后端(2M, 立即)      SD 后端(攒批, Log_Service 限频刷新)
+   每条都发                RAM≥80% 或 ≥5s 或 Log_FlushNow
+                           │ f_write(轮询模式, ≤512B, 数 ms, 罕见)
+                           ▼
+                     /1:/voice_log.txt (追加; >64KB 轮转 .old)
+
+运行时控制(串口命令): log=N(全局级别)  log_tag=x,N(按标签)  save  factory
+                    mode0 / mode2(BKP 跨复位 + SystemReset)
+降级链: SD 坏/满/挂起 → 停写不阻塞, 串口永远在线
+MODE=2: Log_SD_Suspend()(进入时)/Resume(退出时), 挂起期 RAM 环形覆盖</pre>
+
+<h2>五、自研 vs 引 EasyLogger —— 诚实对比</h2>
+<table>
+<tr><th>方案</th><th>优点</th><th>缺点</th><th>建议</th></tr>
+<tr><td><b>A. 自研精简</b>（~250 行, 参考 ulog/EasyLogger/Zephyr 机制）</td><td>完全贴合 VOICE 约束（双后端/MODE=2 挂起/HID 预算/BKP CLI 都是一等公民）；无适配层；代码量小可全量审计；教程价值（每行都有出处）</td><td>缺 EasyLogger 的成熟边角（颜色/关键词过滤/多代轮转）——但这些都是"能放就放"清单</td><td><b>推荐</b></td></tr>
+<tr><td><b>B. 引 EasyLogger 2.2</b>（MIT, 原生裸机支持）</td><td>功能全（异步/轮转/Flash 插件），社区验证久，文档中文齐全</td><td>port 层要写（输出/锁/时间）；MODE=2 挂起与 HID 预算仍需自己在 port 里实现（库不管我们的事）；单例配置与多后端需求错位；引入 ~2K 行第三方代码</td><td>备选（若后续需要 Flash 日志/多代轮转等全家桶再换）</td></tr>
+</table>
+<p>两条路的<b>调用侧 API 完全可以做成一样的</b>（LOGE/LOGW/LOGI/LOGD + tag），先 A 后 B 的迁移成本仅为底层实现——不存在锁定。</p>
+
+<h2>六、串口 CLI（模式切换 + 调参 + 日志控制）设计</h2>
+<pre>串口(2M, CH340)逐字符收 → 行缓冲 → 回车分发:
+  mode0        → BKP_DR1=0xA55A, BKP_DR2=0 → NVIC_SystemReset() → 启动进 MODE=0
+  mode2        → 同上 → MODE=2
+  save         → Params_SD_Save()          (参数表落盘)
+  factory      → Params_SD_FactoryReset()  (恢复出厂+落盘)
+  log=N        → 运行时级别 (0=E 1=W 2=I 3=D)
+  logtag=x,N   → 单标签级别覆盖(简版 per-tag)
+  ver          → 版本/构建时间/BKP 状态
+  help         → 一行命令表
+实现: USART1 RXNE 轮询(每模式循环一次, debug.c 已配 PA10) + 8B 行缓冲;
+跨复位存储: BKP 寄存器(magic+mode)——系统复位保持; 断电清零回落到
+编译期 TEST_MODE(无 VBAT 电池的物理限制, 如需跨断电持久再入 SD/flash)。</pre>
+
+<h2>七、对现有代码的改造清单（实施时）</h2>
+<ul>
+<li>新增 <code>Services/log.h/log.c</code>（双后端 + 双缓冲 + 限频刷新 + 降级）与 <code>Services/serial_cmd.h/c</code>（CLI）</li>
+<li><code>params_sd.c</code>: printf → LOGI/LOGE（tag=<code>params</code>）；挂载成功后 <code>Log_SD_Attach()</code></li>
+<li><code>test_modes.c</code>: MODE=0 启动段 printf → LOGI（tag=<code>hid</code>）；两模式主循环加 <code>Log_Service(); Cmd_Poll();</code>；MODE=2 进入/退出挂 Log_SD_Suspend/Resume</li>
+<li><code>main.c</code>: Log_Init + BKP 模式覆盖（串口切换的落点）</li>
+<li>构建: Services/subdir.mk += log.c, serial_cmd.c；宿主单测不受影响（gesture_sm 不碰日志）</li>
+<li>验收: ①MODE=0 上电后 SD 出现 voice_log.txt 且含启动序列（顺带回答"SD 自愈为何失败"——日志会写出 params_sd 每步结果）②串口发 mode2 真重启进 U 盘 ③发 factory 后 SD 出现默认参数文件 ④热循环无感知卡顿</li>
+</ul>
+
+<div class="key"><b>对当前 SD 之谜的直接影响</b>: 这套日志上线后，<b>下次上电的 voice_log.txt 会逐行记录 params_sd 的每一步结果</b>（SD_Init/f_mount/打开/写入/写回），"为什么没有 voice_config.ini"这类问题以后看文件不用接串口——这正是"帮我省事"的原始诉求，也把本次未解的失败变成下次启动可读的证据。</div>
+
+<div class="footer">调研于 2026-10-15。来源: Zephyr logging 官方文档与上游源码(本地取证)、RT-Thread ulog 官方手册、EasyLogger 仓库与 DeepWiki、SEGGER RTT 官方原理页、嵌入式社区实践文章。建议: 按本文档架构实施自研方案 A, 确认后开工。</div>
+
+</div>
+</body>
+</html>

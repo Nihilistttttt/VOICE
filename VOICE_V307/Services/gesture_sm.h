@@ -2,6 +2,7 @@
 #define __GESTURE_SM_H__
 
 #include "smf.h"    /* Zephyr SMF 移植版: 各状态机内嵌 struct smf_ctx */
+#include "params.h" /* 参数表: 阈值/灵敏度等可调量的单一真源(g_params) */
 
 /*============================================================================
  * 手势状态机（基于 Zephyr SMF 的实现, 纯逻辑, 无硬件依赖, 可宿主编译单测）
@@ -26,16 +27,9 @@
  * 宿主单测: hosttest/run.sh
  *============================================================================*/
 
-/* ---- 阈值/常量（与 v1/原始内联实现数值一致）------------------------------*/
-#define GS_PRESS_ON     250     /* 按下阈值 Pa（迟滞上沿）*/
-#define GS_PRESS_OFF    150     /* 释放阈值 Pa（迟滞下沿）*/
-#define GS_IDLE_WIN     100     /* 另一口空闲窗口: |p2| < 100 */
-#define GS_SCROLL_ON    150     /* 双口滚动进入阈值 */
-#define GS_SCROLL_OFF   100     /* 双口滚动退出阈值（绝对值）*/
-#define GS_LONG_MS      500     /* 长按判定 ms */
+/* ---- 结构性常量（不随参数调整; 阈值/灵敏度类可调量已迁入 params 表）------*/
 #define GS_TICK_MS      50      /* 每 tick 名义时长 ms */
-#define GS_VOL_TILT     600     /* 音量倾斜阈值（摇杆原始计数偏移, 调用方使用）*/
-#define GS_DEBOUNCE     2       /* 按下去抖 tick 数 */
+#define HOME_X_TICKS    5       /* X 定位分 5 帧发（分批因子, 结构性）*/
 
 /* ---- 鼠标报告按键位（HID 按键字节的标准位定义, 消除裸 magic number）------*/
 #define GS_BTN_LEFT     0x01    /* bit0: 左键 */
@@ -167,10 +161,9 @@ typedef enum {
     HOME_HOLD,          /* 点击保持相（下一 tick 释放）*/
 } home_phase_t;
 
-#define HOME_FLOOD_TICKS        12      /* 满幅冲角 tick 数（最坏起点兜底）*/
-#define HOME_X_TICKS            5       /* X 右移分 5 帧发 */
-#define HOME_X_CENTER_COUNTS    540     /* 屏宽一半(P20=1080px)，实测调整 */
-#define HOME_Y_NAV_OFFSET       24      /* 主页键中心距屏幕底边 */
+/* HOME_FLOOD_TICKS/HOME_X_CENTER_COUNTS/HOME_Y_NAV_OFFSET 已迁入参数表
+ * (g_params.home_flood_ticks / home_x_center / home_y_offset);
+ * HOME_X_TICKS 为结构性分批因子, 留在本文件头部。 */
 
 typedef struct {
     struct smf_ctx ctx;

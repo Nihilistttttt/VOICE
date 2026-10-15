@@ -13,6 +13,7 @@ ROOT="D:/Libraries/Projects/VOICE"
   -I"$ROOT/VOICE_V307/Framework" \
   "$ROOT/hosttest/test_gesture_sm.c" \
   "$ROOT/VOICE_V307/Services/gesture_sm.c" \
+  "$ROOT/VOICE_V307/Services/params.c" \
   "$ROOT/VOICE_V307/Framework/smf.c" \
   -o "$ROOT/hosttest/test_gesture_sm.exe"
 
