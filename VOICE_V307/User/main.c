@@ -31,7 +31,7 @@ int main(void)
 #endif
 
 #if TEST_MODE == 0
-    Mode_PhoneControl();     /* 正式功能：吹气采集 + USB AOA 手机控制 */
+    Mode_HidMouse();         /* 正式功能：压差手势 + 手机控制 */
 #elif TEST_MODE == 1
     Mode_SdioBench();        /* SDIO SD 卡读写速率基准 */
 #elif TEST_MODE == 2
@@ -41,7 +41,7 @@ int main(void)
 #elif TEST_MODE == 4
     Mode_UsbhsEnum();        /* USBHS Device 枚举调试 */
 #elif TEST_MODE == 5
-    Mode_HidMouse();         /* USBFS HID 摇杆鼠标 */
+    Mode_PhoneControl();     /* 旧版V2：麦克风吹气 + AOA 手机控制 */
 #else
     printf("Unknown TEST_MODE %d\r\n", TEST_MODE);
     while (1);

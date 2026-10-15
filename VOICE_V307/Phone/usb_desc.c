@@ -1,7 +1,7 @@
 #include "usb_desc.h"
 #include "Config.h"
 
-#if TEST_MODE == 5
+#if TEST_MODE == 0
 
 const uint8_t MyDevDescr[] =
 {
@@ -327,7 +327,7 @@ const uint8_t MyManuInfo[] =
     0x0E, 0x03, 'w', 0, 'c', 0, 'h', 0, '.', 0, 'c', 0, 'n', 0
 };
 
-#if TEST_MODE == 5
+#if TEST_MODE == 0
 const uint8_t MyProdInfo[] =
 {
     0x12, 0x03, 'C', 0, 'H', 0, '3', 0, '2', 0, 'V', 0, '3', 0, '0', 0, 'x', 0
@@ -357,7 +357,7 @@ const uint8_t MyBOSDesc[] =
     0x07, 0x10, 0x02, 0x02, 0x00, 0x00, 0x00,
 };
 
-#if TEST_MODE == 5
+#if TEST_MODE == 0
 uint8_t TAB_USB_FS_OSC_DESC[64] =
 {
     0x09, 0x07,

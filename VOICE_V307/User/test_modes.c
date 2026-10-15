@@ -33,11 +33,13 @@
 #if USBHS_DEBUG_EN == 0
 #error "USBHS调试模式需在usbhs_dev.h里将USBHS_DEBUG_EN置1"
 #endif
-#elif TEST_MODE == 5
+#elif TEST_MODE == 0
 #include "ch32v30x_usbfs_device.h"
 #include "joystick.h"
 #include "pressure.h"
-#elif TEST_MODE == 0
+#include "gesture_sm.h"
+#include "ads1115.h"
+#elif TEST_MODE == 5
 #include "phone_control.h"
 #endif
 
@@ -254,9 +256,9 @@ void Mode_UsbhsEnum(void)
 #endif
 
 /*============================================================================
- * TEST_MODE 5 —— USBFS HID 摇杆鼠标：像鼠标一样控制手机
+ * TEST_MODE 0 —— 正式功能：压差手势 + 手机控制
  *============================================================================*/
-#if TEST_MODE == 5
+#if TEST_MODE == 0
 void Mode_HidMouse(void)
 {
 #if USE_JOYSTICK
@@ -296,127 +298,63 @@ void Mode_HidMouse(void)
 #endif
 
 
-    uint8_t ms_btn = 0, blow_n = 0, sip_n = 0;   /* 压差按键状态（函数级, 跨循环保持）*/
-    uint8_t sip_mode = 0;       /* 0=无 1=按住计时 2=音量模式 */
-    uint16_t sip_ms = 0;        /* 吸住时长（约 50ms/循环）*/
-    uint8_t rclick_pend = 0;    /* 右键点击: 2=按下待发 1=待释放 */
-    uint8_t scroll_mode = 0;    /* 双口滚动: 0=无 1=滚动中 */
-    int8_t  scroll_dir = 0;     /* 滚动方向: +1=向下 -1=向上 */
-    uint8_t scroll_n = 0;       /* 滚轮限速计数 */
-    uint8_t s2_mode = 0;        /* s2 手势: 0=无 1=吹按住 2=吸按住 */
-    uint16_t s2_ms = 0;         /* s2 按住时长（约 50ms/循环）*/
-    uint8_t b2_n = 0, s2_n2 = 0;
-    uint8_t kb_pend = 0;        /* 键盘发送: 1=按下待发 2=释放待发 */
-    uint8_t kb_mod = 0, kb_key = 0;   /* 待发修饰键/键值 */
-    uint8_t home_seq = 0;       /* 回主屏三连: 1=AltTab下 2=起 3=等待1s 4=右键按下 5=右键释放 6=等待1s 7=Home下 8=Home起 */
-    uint8_t home_n = 0;         /* 等待相计数 */
+    /* ---- 手势状态机（纯逻辑: Common/gesture_sm.c; 宿主单测: hosttest/）----
+     * 自原内联实现等价抽取, 行为不变（唯一例外: 断连恢复, 见循环尾部）*/
+    s1_sm_t     s1;  s1_sm_init(&s1);      /* 单口: 吹=左键/拖拽 吸=中键/音量 */
+    scroll_sm_t scr; scroll_sm_init(&scr); /* 双口滚动 */
+    s2_sm_t     s2;  s2_sm_init(&s2);      /* 第二口: 短吹=Alt+Tab 短吸=回主页 */
+    kb_sm_t     kb;  kb_sm_init(&kb);      /* 键盘两相发送 */
+    home_sm_t   hom; home_sm_init(&hom);   /* 回主页序列(CLICKNAV) */
     uint8_t KB_Data_Pack[8] = {0};    /* 键盘 IN 报告（ITF0/EP1）*/
-#define HOME_X_CENTER_COUNTS   540    /* 屏宽一半(P20=1080px)，按指针速度实测调整 */
-#define HOME_Y_NAV_OFFSET      24     /* 主页键中心距屏幕底边 */
+#if HOME_MODE == HOME_MODE_KEYBOARD
+    uint8_t home_seq = 0;       /* 键盘三连: 1=AltTab下 2=起 3=等待 4=中键下 5=中键起 6=等待 7=Home下 8=Home起 */
+    uint8_t home_n = 0;         /* 等待相计数 */
+#endif
 
     while (1) {
         if (USBFS_DevEnumStatus) {
-            if (home_seq == 5) {
-                Delay_Ms(30);   /* 点击保持期: 按下→释放太短怕 EMUI 不识别成点击 */
-            } else if (home_seq == 1) {
-                /* 冲角段: 主机取走上一帧即发下一帧(EP2 bInterval=1ms)
-                 * 满幅冲角怎么飞都出不了屏(边界钳位), 快发只赚不亏 */
-                uint16_t w = 0;
-                while (USBFS_Endp_Busy[DEF_UEP2] && ++w < 100) Delay_Us(100);
-            } else if (home_seq) {
-                /* 定位/点击段: 必须 25ms/帧 —— Android 指针加速度随速度放大位移,
-                 * 快发会被放大导致飞过头; 慢速下"计数≈距离"的映射才成立 */
-                Delay_Ms(25);
+            /* 节奏策略: 回主页序列按相选择, 其余 50ms/圈
+             * ★ Android 指针加速度把"发多快"耦合进"走多远": 冲角段可快发
+             *   (钳位兜底), X/Y 定位段必须 25ms/帧, 点击保持 30ms */
+            if (hom.phase != HOME_IDLE) {
+                uint16_t pms = home_sm_pacing_ms(hom.phase);
+                if (pms == 0) {
+                    /* 冲角段: 主机取走上一帧即发下一帧(EP2 bInterval=1ms) */
+                    uint16_t w = 0;
+                    while (USBFS_Endp_Busy[DEF_UEP2] && ++w < 100) Delay_Us(100);
+                } else {
+                    Delay_Ms(pms);
+                }
             } else {
                 Delay_Ms(50);
             }
 
-            /* 手势映射:
+            /* 手势映射（状态机实现见 Common/gesture_sm.c, 阈值/行为与原内联版一致）:
              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
-             *   短吸 = 右键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量)
-             * 迟滞: 按下 ±250Pa / 释放 ±150Pa */
+             *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
             int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
             int32_t p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
 
-            /* s2 手势: 短吸=Home 短吹=Alt+Tab(多任务切换)
-             * 按住≥500ms 无动作（预留）；迟滞同 s1（按 ±250 / 释 ±150）*/
-            if (s2_mode == 0) {
-                if (p2 >=  250) { if (++b2_n >= 2) { s2_mode = 1; s2_ms = 0; b2_n = 2; } }
-                else if (p2 <= -250) { if (++s2_n2 >= 2) { s2_mode = 2; s2_ms = 0; s2_n2 = 2; } }
-                else { b2_n = 0; s2_n2 = 0; }
-            } else if (s2_ms < 500) {                     /* 按住计时 */
-                if (s2_mode == 1 && p2 <=  150) {         /* 短吹松口 → Alt+Tab */
-                    kb_mod = 0x04; kb_key = 0x2B; kb_pend = 1; s2_mode = 0; b2_n = 0;
-                } else if (s2_mode == 2 && p2 >= -150) {  /* 短吸松口 → 主屏（脚本化底部上滑）*/
-                    home_seq = 1; s2_mode = 0; s2_n2 = 0;
-                } else {
-                    s2_ms += 50;
-                }
-            } else {                                      /* 按住≥500ms: 无动作（预留）*/
-                if (s2_mode == 1 && p2 <=  150) s2_mode = 0;
-                else if (s2_mode == 2 && p2 >= -150) s2_mode = 0;
-            }
+            /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页 */
+            s2_cmd_t cmd = s2_sm_step(&s2, p2);
+            if (cmd == S2_ALTTAB)      kb_sm_press(&kb, 0x04, 0x2B);   /* LAlt+Tab */
+            else if (cmd == S2_HOME)   home_sm_start(&hom);
 
             /* 键盘报告两相发送: 按下 → (下一循环)释放 */
-            if (kb_pend == 1) {
-                KB_Data_Pack[0] = kb_mod;
-                KB_Data_Pack[2] = kb_key;
+            kb_out_t ko;
+            kb_sm_step(&kb, &ko);
+            if (ko.evt == 1) {
+                KB_Data_Pack[0] = ko.mod; KB_Data_Pack[2] = ko.key;
                 USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
-                kb_pend = 2;
-            } else if (kb_pend == 2) {
+            } else if (ko.evt == 2) {
                 KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
                 USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
-                kb_pend = 0;
             }
 
-            /* 双口滚动（优先于单口手势）: 双吹=向下滚 双吸=向上滚
-             * 进入: 双口 |P|≥150   退出: 双口 |P|<100 */
-            if (!scroll_mode) {
-                if (p1 >=  150 && p2 >=  150) { scroll_mode = 1; scroll_dir = -1; scroll_n = 0; }   /* 双吹 = 上滚 */
-                else if (p1 <= -150 && p2 <= -150) { scroll_mode = 1; scroll_dir =  1; scroll_n = 0; }   /* 双吸 = 下滚 */
-            } else {
-                int32_t a1 = (p1 < 0) ? -p1 : p1;
-                int32_t a2 = (p2 < 0) ? -p2 : p2;
-                if (a1 < 100 && a2 < 100) { scroll_mode = 0; scroll_dir = 0; scroll_n = 0; }
-            }
+            /* 双口滚动（优先于单口手势）: 双吹=上滚 双吸=下滚, 100ms 一格 */
+            int8_t wheel = scroll_sm_step(&scr, p1, p2);
 
-            if (!scroll_mode) {
-            if (!(ms_btn & 0x01) && p1 >=  250 && p2 > -100 && p2 < 100) {          /* 吹: 过阈值且另一口空闲 */
-                if (++blow_n >= 2) { ms_btn |= 0x01; blow_n = 2; }
-            } else if ((ms_btn & 0x01) && p1 <=  150) {    /* 吹: 已按下且回落 */
-                ms_btn &= (uint8_t)~0x01; blow_n = 0;
-            } else if (!(ms_btn & 0x01)) {
-                blow_n = 0;
-            }
-
-            if (sip_mode == 0) {
-                if (!(ms_btn & 0x02) && p1 <= -250 && p2 > -100 && p2 < 100) {      /* 吸: 过阈值且另一口空闲 */
-                    if (++sip_n >= 2) { sip_mode = 1; sip_ms = 0; sip_n = 2; }
-                } else {
-                    sip_n = 0;
-                }
-            } else if (sip_mode == 1) {                    /* 按住计时 */
-                if (p1 >= -150) {                          /* 松口: 短吸=右键点击 */
-                    if (sip_ms < 500) rclick_pend = 2;
-                    sip_mode = 0; sip_n = 0;
-                } else {
-                    sip_ms += 50;
-                    if (sip_ms >= 500) sip_mode = 2;       /* 吸住 → 音量模式 */
-                }
-            } else {                                       /* 音量模式 */
-                if (p1 >= -150) { sip_mode = 0; sip_n = 0; }      /* 松口退出 */
-            }
-
-            /* 右键点击: 按下→释放（两个循环完成, 构成一次点击）*/
-            if (rclick_pend == 2) {
-                ms_btn |= 0x04; rclick_pend = 1;      /* 中键 = EMUI 返回（华为官方: 右键无返回语义）*/
-            } else if (rclick_pend == 1) {
-                ms_btn &= (uint8_t)~0x04; rclick_pend = 0;
-            }
-            } /* 非滚动模式: 单口手势结束 */
-
-            mouse_report[0] = ms_btn;
-
+            /* 摇杆 → 指针增量 */
             int16_t x_raw = Joystick_GetX();
             int16_t y_raw = Joystick_GetY();
             int32_t x_off = (int32_t)x_raw - x_mid;
@@ -433,23 +371,33 @@ void Mode_HidMouse(void)
             if (my > 64) my = 64;
             if (my < -64) my = -64;
 
-            /* Consumer 字节: 音量位（吸住音量模式: 指针冻结 + 倾斜=音量）*/
-            uint8_t cons = 0;
-            if (sip_mode == 2) {
-                mx = 0; my = 0;
-                cons = (y_off < -600) ? 0x01 : (y_off > 600) ? 0x02 : 0;
+            /* s1 单口手势（滚动期间状态冻结不推进, 与原门控一致）*/
+            s1_out_t so;
+            if (!scr.active) {
+                s1_sm_step(&s1, p1, p2, &so);
+            } else {
+                so.btn = s1.btn;
+                so.volume_active = (s1.state == S1_SIP_VOLUME);
             }
-            mouse_report[4] = cons;
 
+            /* Consumer 字节: 音量位（吸住音量模式: 指针冻结 + 倾斜=音量）
+             * 注: 与原实现一致, 音量输出不受滚动门控 */
+            uint8_t cons = 0;
+            if (so.volume_active) {
+                mx = 0; my = 0;
+                cons = (y_off < -GS_VOL_TILT) ? 0x01 : (y_off > GS_VOL_TILT) ? 0x02 : 0;
+            }
+
+            mouse_report[0] = so.btn;
             mouse_report[1] = (uint8_t)mx;
             mouse_report[2] = (uint8_t)my;
-            mouse_report[3] = 0;
-            if (scroll_mode && ++scroll_n >= 2) { scroll_n = 0; mouse_report[3] = scroll_dir; }   /* 双口滚动: 每 100ms 一格 */
+            mouse_report[3] = (uint8_t)wheel;   /* 0 或 ±1, 滚动机内部已限速 */
+            mouse_report[4] = cons;
 
             /* 回主屏（s2 短吸触发）—— 按 HOME_MODE 宏选择实现
              * ★ 序列必须在正常赋值之后: 它最终接管整个报告 */
-            if (home_seq) {
 #if HOME_MODE == HOME_MODE_KEYBOARD
+            if (home_seq) {
                 switch (home_seq) {
                 case 1:   /* Alt+Tab 按下 */
                     KB_Data_Pack[0] = 0x04; KB_Data_Pack[2] = 0x2B;   /* LAlt+Tab */
@@ -480,29 +428,22 @@ void Mode_HidMouse(void)
                     USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
                     home_seq = 0; break;
                 }
-#else
-                switch (home_seq) {
-                case 1:   /* 冲左下角: X 左满幅 + Y 下满幅（边界钳位）*/
-                    mouse_report[1] = 0x80;    /* X = -128 */
-                    mouse_report[2] = 127;     /* Y = +127 */
-                    if (++home_n >= 12) { home_seq = 2; home_n = 0; }
-                    break;
-                case 2:   /* X 右移到屏幕中心（分 5 报告，每份 108 计数）*/
-                    mouse_report[1] = HOME_X_CENTER_COUNTS / 5; mouse_report[2] = 0;
-                    if (++home_n >= 5) { home_seq = 3; home_n = 0; }
-                    break;
-                case 3:   /* Y 微调: 进入主页键中心 */
-                    mouse_report[2] = (uint8_t)(-HOME_Y_NAV_OFFSET);
-                    home_seq = 4; break;
-                case 4:   /* 左键按下 */
-                    mouse_report[0] |= 0x01;
-                    home_seq = 5; break;
-                case 5:   /* 左键释放 → 主页键点击 = 回主页 */
-                    mouse_report[0] &= (uint8_t)~0x01;
-                    home_seq = 0; break;
-                }
-#endif
             }
+#else
+            if (hom.phase != HOME_IDLE) {
+                home_out_t ho;
+                home_sm_step(&hom, &ho);
+                if (ho.move) {                    /* 移动相: 接管 X/Y */
+                    mouse_report[1] = (uint8_t)ho.dx;
+                    mouse_report[2] = (uint8_t)ho.dy;
+                }
+                if (ho.left_btn == 1) {           /* 点击相: 接管左键 */
+                    mouse_report[0] |= 0x01;
+                } else if (ho.left_btn == 0) {
+                    mouse_report[0] &= (uint8_t)~0x01;
+                }
+            }
+#endif
 
             USBFS_Endp_DataUp(DEF_UEP2, mouse_report, 5, DEF_UEP_CPY_LOAD);
 
@@ -526,6 +467,13 @@ void Mode_HidMouse(void)
             }
         } else {
             Delay_Ms(200);
+            /* 断连恢复(审计 F3): 未完成的回主页序列作废; 键盘若悬在
+             * "已按下"相则改为"待释放", 重连后先补释放帧防按键卡住 */
+            home_sm_abort(&hom);
+            if (kb.pend == 1) kb.pend = 2;
+#if HOME_MODE == HOME_MODE_KEYBOARD
+            home_seq = 0;
+#endif
 #if HID_REQUIRE_PHONE
             printf("Waiting enum... Enum=%d\r\n", USBFS_DevEnumStatus);
 #else
@@ -549,9 +497,9 @@ void Mode_HidMouse(void)
 #endif
 
 /*============================================================================
- * TEST_MODE 0 —— 正式功能：吹气采集 + USB AOA 手机控制
+ * TEST_MODE 5 —— 旧版V2：麦克风吹气 + AOA
  *============================================================================*/
-#if TEST_MODE == 0
+#if TEST_MODE == 5
 void Mode_PhoneControl(void)
 {
     Phone_Control_Init();

@@ -6,16 +6,19 @@
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
 ../Common/Config.c \
+../Common/gesture_sm.c \
 ../Common/hal_gpio.c \
 ../Common/serial.c 
 
 C_DEPS += \
 ./Common/Config.d \
+./Common/gesture_sm.d \
 ./Common/hal_gpio.d \
 ./Common/serial.d 
 
 OBJS += \
 ./Common/Config.o \
+./Common/gesture_sm.o \
 ./Common/hal_gpio.o \
 ./Common/serial.o 
 

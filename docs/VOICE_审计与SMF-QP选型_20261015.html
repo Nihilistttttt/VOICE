@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOICE 代码审计与框架选型分析（Zephyr SMF vs QP）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.75; padding: 40px 20px; }
+  .container { max-width: 980px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 48px 56px; }
+  h1 { font-size: 26px; border-bottom: 3px solid #3498db; padding-bottom: 14px; margin-bottom: 8px; }
+  .meta { color: #7f8c9a; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 20px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid #3498db; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: #34495e; }
+  p { margin: 8px 0; font-size: 14.5px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th { background: #3498db; color: #fff; padding: 9px 10px; text-align: left; font-weight: 600; }
+  td { border: 1px solid #dfe6ec; padding: 8px 10px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafb; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .t-high { background: #e74c3c; color: #fff; }
+  .t-mid  { background: #e67e22; color: #fff; }
+  .t-low  { background: #f1c40f; color: #5d4f00; }
+  .t-info { background: #95a5a6; color: #fff; }
+  .t-good { background: #27ae60; color: #fff; }
+  .finding { border: 1px solid #dfe6ec; border-radius: 8px; padding: 14px 18px; margin: 12px 0; background: #fcfdfe; }
+  .finding h4 { font-size: 15px; margin-bottom: 6px; }
+  .finding p, .finding li { font-size: 13.5px; }
+  code { background: #eef2f5; padding: 1px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 13px; color: #c0392b; }
+  .good { border-left: 4px solid #27ae60; background: #f4faf6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .warn { border-left: 4px solid #e67e22; background: #fdf6ec; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+  .verdict { border-left: 4px solid #2980b9; background: #eef6fc; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 14px; }
+  ul, ol { padding-left: 24px; margin: 6px 0; }
+  li { font-size: 14px; margin: 3px 0; }
+  .footer { margin-top: 48px; padding-top: 14px; border-top: 1px dashed #d5dbdb; color: #95a5a6; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>VOICE 项目代码审计与框架选型分析</h1>
+<div class="meta">日期：2026-10-15 ｜ 对象：VOICE_V307 固件（TEST_MODE=0 工作区最新状态，含码道未提交改动）｜ 方法：embedded-firmware-dev / state-machine-design / fact-check / c-cpp-dev 技能工作流 ｜ 性质：只读审计，未改动任何代码</div>
+
+<h2>一、审计范围与基线状态</h2>
+<p>本次审计覆盖上次系统性架构审计（2026-10-12）之后新增/变化的代码：<code>User/test_modes.c</code>（MODE=0 手势栈，约 290 行主体）、<code>Phone/pressure.c/h</code>、<code>Phone/ads1115.c/h</code>、<code>Common/Config.h</code>、USB 描述符与 USBFS 设备栈相关改动。</p>
+<p><b>重要基线事实</b>（已核实）：</p>
+<ul>
+  <li><b>TEST_MODE 当前 = 0</b>。码道（华为云 CodeArts Agent）的未提交改动把 HID 摇杆鼠标从测试模式 5 <b>提升为正式模式 0</b>（6 个文件的模式门机械替换 5→0），模式 5 退回为旧版 V2（麦克风+AOA）。该替换本身低风险，但尚未见她方构建验证。</li>
+  <li><b>目录结构已回退为 WCH 标准布局</b>：<code>Common/</code>（Config、hal_gpio、serial）、<code>Phone/</code>（各器件驱动）、<code>User/</code>（main + test_modes）、Core/Peripheral/Debug/Startup/USB_Host 为官方库。此前的 Board/Hal/App/Test/Sense 分层与 hosttest 宿主单测<b>已不在工作区</b>。</li>
+  <li>资源占用宽裕：<code>.text</code> 26316 / 256K Flash（约 10%），<code>.bss</code> 5344 / 64K RAM（约 8%）。</li>
+</ul>
+
+<h2>二、审计发现（按严重度排序）</h2>
+
+<div class="finding">
+<h4><span class="tag t-mid">中</span>F1 手势状态机全部内联，宿主单测安全网丢失</h4>
+<p><code>Mode_HidMouse()</code> 一个函数内用约 <b>18 个局部状态变量</b>（ms_btn / sip_mode / rclick_pend / scroll_mode / s2_mode / home_seq / kb_pend …）承载 6 套互相耦合的状态机：s1 吹气、s1 吸吮、双口滚动、s2 手势、回主页序列、键盘两相发送。这正是 state-machine-design 技能列为反模式的"隐式状态"——每加一个标志就产生一批未测试的状态组合。</p>
+<p><b>且</b>：曾把状态机抽为纯逻辑 + 73 条断言的 <code>Sense/gesture.c</code> 与 <code>hosttest/</code> 在目录重构中丢失（git 历史无删除记录，属丢失的 9 个 commit 之列）。现在改任何手势逻辑都没有回归安全网。</p>
+<p><b>建议</b>：先做与框架无关的第 0 步——把 6 套状态机重新抽成显式枚举 + per-state handler（技能 Pattern A），恢复到可在宿主编译单测的形态。这是后续任何框架迁移的地基。</p>
+</div>
+
+<div class="finding">
+<h4><span class="tag t-mid">中</span>F2 总线故障静默：读失败与"真实零读数"不可区分</h4>
+<p><code>ADS1115_ReadReg()</code> 失败时返回 0，<code>ADS1115_ReadChannel()</code> 也返回 0；<code>Pressure_ReadCounts()</code> 头注释自己注明了这一点。后果：I2C 总线死掉后，上层看到的是"两个口都没有压力"——<b>设备外观完好但完全无响应</b>，没有任何错误指示。对辅助器具这是最坏的失败形态（用户无法区分"没吹"和"坏了"）。</p>
+<p><b>建议</b>：驱动层增加带外错误通道（连续失败计数 / 错误标志 / 返回码区分），上层在 N 次连续失败后进入可感知的降级态（串口+OLED 指示，或指针周期性大幅抖动提示）。与 async-lifecycle 技能一致：异步标志必须有显式的错误出口。</p>
+</div>
+
+<div class="finding">
+<h4><span class="tag t-low">低</span>F3 回主页序列无断连恢复策略</h4>
+<p><code>home_seq</code> 序列运行中若 USB 枚举丢失（拖拽、松线），重连后序列会<b>从中断的那一相继续</b>（例如指针已冲到角上、还没点下去）。无害但不优雅，且是未定义行为。建议：枚举状态跃迁时显式中止 home_seq（或从头重驱）。</p>
+</div>
+
+<div class="finding">
+<h4><span class="tag t-low">低</span>F4 阻塞式 Delay_Ms 超循环：时序与循环速率强耦合</h4>
+<p>整个 MODE=0 是一个 <code>Delay_Ms(50)</code> 阻塞循环，所有节奏都寄生在循环周期上：滚动 100ms/格 = 2 个循环、CLICKNAV 定位 25ms/帧 = 半个循环。上周的"飞太多"bug 根因就在此——宿主指针加速度把发送速度耦合进了位移，而发送速度只能靠调循环延时间接控制。功能越多，这种隐式时序越难维护。</p>
+<p>这不是 bug，是<b>架构特性</b>，也正是本次框架选型要回答的核心问题。</p>
+</div>
+
+<div class="finding">
+<h4><span class="tag t-low">低</span>F5 驱动状态"最近一次读取"语义，多调用点隐式共享</h4>
+<p><code>Pressure_Saturated()</code> 依赖 <code>ReadCounts()</code> 的副效应更新 <code>s_sat1/2</code>；打印块里又重复读一次。单线程超循环下成立，但调用顺序即正确性。建议改为显式传入读取上下文或返回结构体。</p>
+</div>
+
+<div class="finding">
+<h4><span class="tag t-info">信息</span>F6 文档漂移（小）</h4>
+<p><code>Config.h</code> 中 <code>HID_REQUIRE_PHONE</code> 注释仍写"MODE=5 附加开关"，实际已服务于 MODE=0；<code>ads1115.c</code> 头注释"硬件版尚未独立验证"已过期（硬件 I2C2 早已转正并实测）。建议码道提交模式门改动时顺手更正。</p>
+</div>
+
+<div class="good">
+<b>做得好的部分（应予保留）：</b>① <code>pressure.c</code> 换算公式有数据手册表6推导、整数运算避开浮点/64位除法、中位数零点校准、双向饱和钳位+SAT 标志，是本工程文档化最好的驱动；② <code>ads1115.c</code> 硬件 I2C 每步带超时与总线释放，ACK 时序修复有实测证据（612+365 次失败定位），A/B 传输开关设计干净；③ 两层配置模型（BOARD_HAS_*→USE_*+#error 一致性检查）方向正确；④ 码道的模式门替换是机械性低风险改动，未夹带行为变更。
+</div>
+
+<h2>三、Zephyr SMF vs QP™ 选型分析</h2>
+
+<h3>3.1 候选方案的事实基线（已核实）</h3>
+<table>
+<tr><th style="width:16%">维度</th><th style="width:42%">Zephyr SMF</th><th style="width:42%">QP™（Quantum Platform）</th></tr>
+<tr><td><b>定位</b></td><td>轻量层次状态机<b>库</b>（~500 行，3 个 API：set_initial / run_state / set_state）。不是框架——无事件队列、无活动对象、无定时服务，调度仍是你的超循环</td><td>事件驱动<b>框架</b>：活动对象 + 层次 UML 状态图 + 事件队列 + 发布订阅 + 时间事件（定时器）+ QS 软件跟踪 + QM 建模工具</td></tr>
+<tr><td><b>RTOS 依赖</b></td><td>零依赖，纯 C99，可独立抽取（第三方 tayne3/SMF 版 ~2KB .text、&lt;96B RAM/实例，API 与 Zephyr 原版不兼容）</td><td>裸机可运行（QV 协作内核替代超循环 / QK 抢占式 RTC 内核），<b>本身不是 RTOS</b>，不违反项目"不引 RTOS"红线；也可叠加在 RTOS 上</td></tr>
+<tr><td><b>CH32V307 支持</b></td><td>纯 C 库与芯片无关，直接可用</td><td>官方提供主流 CPU 移植，无 CH32V307 现成移植；但 QP 移植层极小（临界段宏 + 时钟节拍），RV32 无 PRIMASK 需用 QingKe CSR 中断控制实现</td></tr>
+<tr><td><b>USB 生命线</b></td><td>无关（库不碰外设）</td><td>无关（框架不碰外设；WCH USBFS 栈可保留为"服务"被活动对象调用）</td></tr>
+<tr><td><b>测试工具</b></td><td>纯 C 易宿主编译；但无专用测试/跟踪设施</td><td><b>QUTest</b>（宿主单元测试）+ <b>QS/QSpy</b>（目标端实时跟踪状态迁移，不停机）+ 桌面模拟开发。与本项目已有的 hosttest 文化天然契合</td></tr>
+<tr><td><b>安全 pedigree</b></td><td>Zephyr 子模块，社区广泛使用</td><td>15+ 年，医疗/航空/国防在役，MISRA 友好，配套 QL 编码风格规范</td></tr>
+<tr><td><b>授权</b></td><td>Zephyr 为 Apache-2.0；第三方抽取版看各自仓库</td><td><b>双授权：GPLv3 或商业授权</b>。选 GPL 则整个链接固件须 GPL；闭源分发须购买商业授权（需向 state-machine.com 询价）</td></tr>
+<tr><td><b>学习曲线</b></td><td>平缓（半天）</td><td>陡（活动对象/UML 状态图/控制反转，按周计）</td></tr>
+</table>
+
+<div class="warn">
+<b>必须同时看到的事实</b>：Zephyr <b>上游已正式支持 CH32V307V-EVT-R1</b>（GPIO/I2C/UART/SPI/DMA/Ethernet/EXTI/PWM 等），但板级支持列表中<b>没有 USB 设备控制器驱动</b>。因此"整体迁 Zephyr"路线对本项目基本关闭：① USBFS HID 复合设备是产品生命线，要么自己给 Zephyr 写 UDC 驱动，要么把 WCH 寄存器级栈塞进 Zephyr 驱动模型——两条都是深水区；② west/Kconfig/设备树构建体系替换 MounRiver，成本全项目级；③ Zephyr 是 RTOS，违反既定决策；④ 256K/64K 上跑完整内核性价比低。<b>SMF 的正确用法只有"独立抽取版"这一种</b>，而那样得到的只是一个层次状态机库，拿不到 QP 的事件队列/定时/跟踪生态。
+</div>
+
+<h3>3.2 与本项目的匹配度</h3>
+<p>把项目的真实痛点代入对比：</p>
+<ul>
+<li><b>F1（状态机内联无测试）</b>：两个方案都不直接解决——那是抽取+单测的功课。但 QP 的状态机写法（每个状态一个 handler、转移显式）天然强制结构化，且 QUTest 可直接宿主测试状态图；SMF 只提供容器，测试仍要自己搭。</li>
+<li><b>F4（时序耦合）</b>：QP 的时间事件（QTimeEvt）让"滚动 100ms/格""CLICKNAV 定位 25ms/帧"变成显式定时器，与主循环速率解耦——上周那类加速度耦合 bug 会从"调循环延时"变成"调一个定时器参数"。SMF 无此能力。</li>
+<li><b>功能路线图</b>（下一大项是文字输入：摩斯/语音）：事件驱动 + 活动对象是这类多模态输入的自然架构；QP 的 QS 跟踪还能在真机上观察患者实际操作时的状态迁移，对辅助器具的体验调优价值很大。</li>
+<li><b>资源</b>：QP/C 约 4–8KB ROM，QP-nano 更小；相对 10% 的 Flash 占用率完全不是问题。</li>
+<li><b>授权是 QP 唯一的硬伤</b>：项目已在 GitHub 公开，若接受 GPLv3 则 firmware 整体开源（WCH 外设库许可证需一并核对兼容性）；若将来商业化，需购买商业授权。</li>
+</ul>
+
+<h2>四、结论与建议路径</h2>
+<div class="verdict">
+<b>结论：选 QP™（QP-nano 或 QP/C + QV 协作内核），不选 Zephyr SMF。</b>理由：SMF 独立抽取版只是一个层次状态机库，解决不了本项目最痛的时序耦合与可测试性；整体 Zephyr 路线因 USB 驱动缺失、构建体系替换和 RTOS 红线而关闭。QP 以"非 RTOS 的事件驱动框架"形态，同时回应 F1/F4 与后续功能路线图，且其测试/跟踪工具链与项目既有 hosttest 文化同构。
+</div>
+<p><b>但强烈建议分四步走，禁止一步到位</b>（违反"不在同一次改动里既重构又加功能"的既定原则）：</p>
+<ol>
+<li><b>第 0 步（无框架，立即做）</b>：恢复丢失的安全网——把 6 套内联状态机抽为显式枚举 + per-state handler 纯逻辑模块，重建 hosttest 单测。这一步做完，F1 关闭，且无论将来用什么框架都受益。</li>
+<li><b>第 1 步（试点）</b>：修 F2（总线故障带外通道）与 F3（序列断连恢复）。这两项与框架无关，但都是可靠性硬伤。</li>
+<li><b>第 2 步（引入 QP-nano 试点）</b>：只迁移 MODE=0 控制层：s1/s2/滚动/回主页建模为活动对象，时间事件替换循环寄生时序；WCH USBFS 栈保持不动，作为被调用的"服务"。先评估移植工作量（RV32 临界段宏）与授权决策。</li>
+<li><b>第 3 步（推广）</b>：文字输入功能直接在 QP 上建；QS 跟踪用于真机行为调优；条件成熟时用 QM 建模复杂状态图。</li>
+</ol>
+<p><b>什么时候反而该选 SMF</b>：若团队明确拒绝 QP 的授权成本和学习曲线、且只想要"把状态机写整齐"——那就用独立抽取版 SMF（~2KB、Apache 系许可、零风险），但要知道它给不了事件队列、定时器和跟踪，F4 只能靠其他方式缓解。</p>
+
+<h2>五、未决事项（需决策/核实）</h2>
+<ul>
+<li><b>授权决策</b>：QP 走 GPLv3（固件整体开源，需核对 WCH 外设库许可证兼容性）还是购买商业授权（询价）。这决定第 2 步能否启动。</li>
+<li><b>Zephyr USB 缺口</b>：以上游 main 为准，CH32V307 移植未见 USB device 驱动；若 Zephyr 后续补齐，可重估"整体 Zephyr"选项（届时 QP 也可跑在其上）。</li>
+<li><b>码道未提交改动</b>：模式门 5→0 替换的构建验证在她那边；本文档审计基于该改动后的工作区状态，未代为构建（避免触碰她的工作区）。</li>
+<li><b>RV32 临界段</b>：QP 移植需用 QingKe V4 的 CSR 中断开关实现 <code>QF_CRIT_STAT</code>，工作量小但需实测验证。</li>
+</ul>
+
+<div class="footer">本文件由 WorkBuddy 于 2026-10-15 生成；审计为只读，未改动任何仓库文件。框架对比数据来自公开文档与社区资料（Zephyr 上游板级支持、state-machine.com、社区实测），关键数字已标注出处性质；商业授权价格与 CH32V307 USB 驱动现状需以官方最新信息为准。</div>
+
+</div>
+</body>
+</html>

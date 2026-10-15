@@ -32,4 +32,12 @@ uint8_t ADS1115_WriteReg(uint8_t reg, uint16_t value);
 uint16_t ADS1115_ReadReg(uint8_t reg);
 int16_t ADS1115_ReadChannel(uint8_t channel);
 
+/* ---- 总线故障带外通道（审计 F2）----
+ * ReadChannel 失败时返回 0, 与"真实 0 计数"不可区分; 总线死掉时设备
+ * 表现为"无压力"但外观完好。用这两个查询区分:
+ *   BusDead()=1  → 连续失败达阈值, 读数不可信（应做可感知降级指示）
+ *   FailStreak() → 当前连续失败次数（成功清零）*/
+uint8_t  ADS1115_BusDead(void);
+uint16_t ADS1115_FailStreak(void);
+
 #endif

@@ -16,7 +16,7 @@ void Mode_SdioBench(void);      /* TEST_MODE 1  SDIO 读写速率基准 */
 void Mode_Udisk(void);          /* TEST_MODE 2  USB MSC U 盘 */
 void Mode_Fatfs(void);          /* TEST_MODE 3  SD 卡 FAT 读文件 */
 void Mode_UsbhsEnum(void);      /* TEST_MODE 4  USBHS Device 枚举调试 */
-void Mode_HidMouse(void);       /* TEST_MODE 5  USBFS HID 摇杆鼠标 */
-void Mode_PhoneControl(void);   /* TEST_MODE 0  正式功能：吹气采集 + AOA 手机控制 */
+void Mode_HidMouse(void);       /* TEST_MODE 0  正式功能：压差手势 + 手机控制 */
+void Mode_PhoneControl(void);   /* TEST_MODE 5  旧版V2：麦克风吹气 + AOA */
 
 #endif /* __TEST_MODES_H */

@@ -8,8 +8,8 @@
  * 传输层 A/B 开关（Config.h 定义）
  *   ADS1115_I2C_HARDWARE = 1  硬件 I2C2（PB10/PB11 默认映射）
  *                          0  软件 bit-bang（同一组引脚，Delay_Us 掐时序）
- *   两者 A/B 对比用于排查"脱机模式下全部读 0"的问题：
- *   软件版在枚举模式下已实测能读到数据；硬件版尚未独立验证。
+ *   两者 A/B 对比用于排查"脱机模式下全部读 0"的问题（已闭环: 硬件版
+ *   400k I2C2 转正并实测通过, 软件版留作 A/B 备份）。
  *
  * ADS1115_DEBUG = 1 时，初始化/读写的每一步失败都会打串口（含行号），
  * ReadChannel 会打印原始计数值 —— 用于定位失败发生在哪一步。
@@ -22,6 +22,41 @@
 #define ADS_DBG(...)
 #define ADS_FAIL()
 #endif
+
+/*============================================================================
+ * 总线故障带外通道（审计 F2）
+ *   读失败返回 0 与"真实 0 计数"不可区分 → 总线死掉时上层只看到
+ *   "无压力"却无任何异常。这里补带外状态: 连续失败计数 + 总线失效
+ *   锁存（跨阈值一次性打印, 恢复时也打印）。上层用 ADS1115_BusDead()
+ *   查询做可感知降级（OLED/串口指示等）。
+ *   注: 转换寄存器读数被破坏无 CRC 不可检, 本通道只覆盖"写配置失败"
+ *   与"OS 位轮询超时"两类可检失败 —— 足以覆盖总线断线/器件掉电。
+ *============================================================================*/
+#define ADS1115_FAIL_DEAD_TH   20      /* 连续失败 N 次 → 判总线失效 */
+
+static uint16_t s_fail_streak = 0;     /* 连续失败计数（成功清零）*/
+static uint8_t  s_bus_dead = 0;        /* 总线失效锁存 */
+
+static void ads_note_fail(void)
+{
+    if (++s_fail_streak >= ADS1115_FAIL_DEAD_TH && !s_bus_dead) {
+        s_bus_dead = 1;
+        printf("[ADS1115] !! BUS DEAD: %u consecutive fails, readings invalid\r\n",
+               (unsigned)s_fail_streak);
+    }
+}
+
+static void ads_note_ok(void)
+{
+    if (s_bus_dead) {
+        s_bus_dead = 0;
+        printf("[ADS1115] bus recovered\r\n");
+    }
+    s_fail_streak = 0;
+}
+
+uint8_t  ADS1115_BusDead(void)    { return s_bus_dead; }
+uint16_t ADS1115_FailStreak(void) { return s_fail_streak; }
 
 /*============================================================================
  * ALERT/RDY(PE15) 转换完成中断 —— 走 hal_gpio 的 EXTI 回调分发表
@@ -317,6 +352,7 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
 
     if (ADS1115_WriteReg(ADS1115_REG_CONFIG, config)) {
         ADS_DBG("[ADS1115] ch%d: config write failed\r\n", channel);
+        ads_note_fail();
         return 0;
     }
 
@@ -346,8 +382,10 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
         ADS_DBG("[ADS1115] ch%d: raw=%d\r\n", channel, raw);
 #endif
 
-    if (!s_alert_flag && (cfg_read & 0x8000) == 0)
+    if (!s_alert_flag && (cfg_read & 0x8000) == 0) {
+        ads_note_fail();
         return 0;
+    }
 #else
     /* OS 位轮询（本板 ALERT 不触发, 已禁用等待）: 475SPS 约 2.1ms, 上限 15ms */
     do {
@@ -363,10 +401,13 @@ int16_t ADS1115_ReadChannel(uint8_t channel)
         ADS_DBG("[ADS1115] ch%d: raw=%d\r\n", channel, raw);
 #endif
 
-    if ((cfg_read & 0x8000) == 0)
+    if ((cfg_read & 0x8000) == 0) {
+        ads_note_fail();
         return 0;
+    }
 #endif
 
+    ads_note_ok();
     return raw;
 }
 #endif /* USE_ADS1115 */

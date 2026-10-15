@@ -12,7 +12,7 @@
 
 #include "ch32v30x_usbfs_device.h"
 #include "Config.h"
-#if TEST_MODE != 5
+#if TEST_MODE != 0
 #include "sw_udisk.h"
 #endif
 /*******************************************************************************/
@@ -35,7 +35,7 @@ volatile uint8_t  USBFS_DevEnumStatus;
 
 /* Endpoint Buffer */
 __attribute__ ((aligned(4))) uint8_t USBFS_EP0_Buf[ DEF_USBD_UEP0_SIZE ];    //ep0(64)
-#if TEST_MODE == 5
+#if TEST_MODE == 0
 __attribute__ ((aligned(4))) uint8_t USBFS_EP1_Buf[ DEF_USB_EP1_FS_SIZE ];   //ep1_in(64)
 __attribute__ ((aligned(4))) uint8_t USBFS_EP2_Buf[ DEF_USB_EP2_FS_SIZE ];   //ep2_in(64)
 volatile uint8_t  USBFS_HidIdle[ 2 ];
@@ -96,7 +96,7 @@ void USBFS_RCC_Init(void)
  */
 void USBFS_Device_Endp_Init( void )
 {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
     USBFSD->UEP4_1_MOD = USBFS_UEP1_TX_EN;
     USBFSD->UEP2_3_MOD = USBFS_UEP2_TX_EN;
 
@@ -315,7 +315,7 @@ void USBFS_IRQHandler( void )
                         }
                         break;
 
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                     /* end-point 1 data in interrupt */
                     case USBFS_UIS_TOKEN_IN | DEF_UEP1:
                         USBFSD->UEP1_TX_CTRL = (USBFSD->UEP1_TX_CTRL & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_NAK;
@@ -329,7 +329,7 @@ void USBFS_IRQHandler( void )
                             USBFSD->UEP2_TX_CTRL = (USBFSD->UEP2_TX_CTRL & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_NAK;
                             USBFSD->UEP2_TX_CTRL ^= USBFS_UEP_T_TOG;
                             USBFS_Endp_Busy[ DEF_UEP2 ] = 0;
-#if TEST_MODE != 5
+#if TEST_MODE != 0
                             UDISK_In_EP_Deal();
 #endif
                             break;
@@ -349,7 +349,7 @@ void USBFS_IRQHandler( void )
                         {
                             if ( ( USBFS_SetupReqType & USB_REQ_TYP_MASK ) != USB_REQ_TYP_STANDARD )
                             {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                                 if ( ( USBFS_SetupReqType & USB_REQ_TYP_MASK ) == USB_REQ_TYP_CLASS )
                                 {
                                     if ( USBFS_SetupReqCode == HID_SET_REPORT )
@@ -373,7 +373,7 @@ void USBFS_IRQHandler( void )
                         }
                         break;
 
-#if TEST_MODE != 5
+#if TEST_MODE != 0
                     /* end-point 3 data out interrupt */
                     case USBFS_UIS_TOKEN_OUT | DEF_UEP3:
                         if ( intst & USBFS_UIS_TOG_OK )
@@ -406,7 +406,7 @@ void USBFS_IRQHandler( void )
                     /* usb non-standard request processing */
                     if (( USBFS_SetupReqType & USB_REQ_TYP_MASK ) == USB_REQ_TYP_CLASS)
                     {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                         switch( USBFS_SetupReqCode )
                         {
                             case HID_SET_REPORT:
@@ -513,7 +513,7 @@ void USBFS_IRQHandler( void )
                                     len = DEF_USBD_CONFIG_DESC_LEN;
                                     break;
 
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                                 /* get usb hid descriptor */
                                 case USB_DESCR_TYP_HID:
                                     if( USBFS_SetupReqIndex == 0x00 )
@@ -634,7 +634,7 @@ void USBFS_IRQHandler( void )
                                 {
                                     switch( (uint8_t)( USBFS_SetupReqIndex & 0xFF ) )
                                     {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                                         case ( DEF_UEP_IN | DEF_UEP1 ):
                                             USBFSD->UEP1_TX_CTRL = USBFS_UEP_T_RES_NAK;
                                             break;
@@ -710,7 +710,7 @@ void USBFS_IRQHandler( void )
                                     /* Set end-points status stall */
                                     switch( (uint8_t)( USBFS_SetupReqIndex & 0xFF ) )
                                     {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                                         case ( DEF_UEP_IN | DEF_UEP1 ):
                                             USBFSD->UEP1_TX_CTRL = ( USBFSD->UEP1_TX_CTRL & ~USBFS_UEP_T_RES_MASK ) | USBFS_UEP_T_RES_STALL;
                                             break;
@@ -773,7 +773,7 @@ void USBFS_IRQHandler( void )
                             {
                                 switch( (uint8_t)( USBFS_SetupReqIndex & 0xFF ) )
                                 {
-#if TEST_MODE == 5
+#if TEST_MODE == 0
                                     case ( DEF_UEP_IN | DEF_UEP1 ):
                                         if( ( (USBFSD->UEP1_TX_CTRL) & USBFS_UEP_T_RES_MASK ) == USBFS_UEP_T_RES_STALL )
                                         {
