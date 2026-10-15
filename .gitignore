@@ -50,3 +50,6 @@ local.properties
 /_local/
 /.codeartsdoer/
 .mrs/
+VOICE_V307/com9_log.txt
+VOICE_V307/flash_log*.txt
+*.tmp
