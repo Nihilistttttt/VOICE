@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <usb-accessory>
-        <manufacturer>VoiceCtrl</manufacturer>
-        <model>CH32V307</model>
-        <version>1.0</version>
-    </usb-accessory>
-</resources>
