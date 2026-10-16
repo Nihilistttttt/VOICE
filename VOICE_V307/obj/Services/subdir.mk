@@ -8,6 +8,7 @@
 
 # Add inputs and outputs from these tool invocations to the build variables
 C_SRCS += \
+../Services/esp_link.c \
 ../Services/gesture_sm.c \
 ../Services/log.c \
 ../Services/mic_hum.c \
@@ -17,6 +18,7 @@ C_SRCS += \
 ../Services/serial_cmd.c
 
 C_DEPS += \
+./Services/esp_link.d \
 ./Services/gesture_sm.d \
 ./Services/log.d \
 ./Services/mic_hum.d \
@@ -26,6 +28,7 @@ C_DEPS += \
 ./Services/serial_cmd.d
 
 OBJS += \
+./Services/esp_link.o \
 ./Services/gesture_sm.o \
 ./Services/log.o \
 ./Services/mic_hum.o \

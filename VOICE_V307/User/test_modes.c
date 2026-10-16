@@ -42,6 +42,7 @@
 #include "gesture_sm.h"
 #include "params.h"
 #include "params_sd.h"
+#include "esp_link.h"
 #include "log.h"
 #include "serial_cmd.h"
 #include "ads1115.h"
@@ -287,6 +288,9 @@ void Mode_HidMouse(void)
     Params_SD_Init();
     Log_SD_Attach();    /* 挂载成功 → 日志文件生效, 此后 LOGx 全部落 SD */
 #endif
+#if USE_ESP_LINK
+    EspLink_Init();     /* UART6@2M ↔ ESP8266(透传) ↔ WiFi UDP:8888 调参链路 */
+#endif
 
     Joystick_Init();
     USBFS_RCC_Init();
@@ -357,6 +361,9 @@ void Mode_HidMouse(void)
              *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
             int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
             int32_t p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
+
+            /* WiFi 调参链路: 参数下行直通参数表, 压差波形上行(UDP:8888) */
+            EspLink_Poll(p1, p2);
 
             /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页 */
             s2_cmd_t cmd = s2_sm_step(&s2, p2);

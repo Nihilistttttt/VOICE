@@ -1368,3 +1368,62 @@ fr=6 根因闭环(串口日志取证, COM9 抓启动序列):
 验证: hosttest 125/125; MODE=0 .text=40180(含 FatFs)零警告; 真机
 闭环三连(删配置→自愈→加载)通过, BOOT #6→#7 计数正确; U 盘模式
 确认卡上 PARAMS.INI(253B 默认模板)/LOG.TXT(BOOT 头)存在。
+
+----------------------------------------
+一百二十八、WiFi 无线调参链路(ESP8266+UART6)全闭环 + 硬件坑专档 + mode 切换取消决策
+----------------------------------------
+
+背景: 串口切换模式的功能被真机测试否决(码道的 USBFS 运行时化改动
+致 2Hz 复位死循环, 按用户决定整体回退)——转而采用 ESP8266 路线,
+用户纠正了"ESP8266 硬件孤岛"的错误旧结论(实为 U4/U7 模拟开关+SW3
+机械开关切换连接)。
+
+网表考证(修正旧结论):
+- hardware/电路.txt(嘉立创 JSON, components[key].props + pinInfoMap)
+  解析: U10(ESP8266MOD) 经 U4/U7 四路 SPDT 模拟开关接 MCU;
+  CTRL0 由 SW3 机械开关选择——CTRL0=0: CH340↔ESP8266(PC 直配/烧模组);
+  CTRL0=1: CH340↔USART1(调试) + UART6(PC0/PC1)↔ESP8266 同时接通。
+- 网名 CH32_TX6/RX6 的"6"= UART6(CH32V307 有 UART6/7/8, IRQ 87-89,
+  RCC_APB1Periph_UART6=0x40, usart.c 支持)——serial.c"硬件孤岛"注释
+  是错误的, 已以网表证据纠正。
+- E_RST/E_GPIO0 经 Q5/Q7 接 CH340 RTS/DTR = 标准一键下载电路
+  (Arduino IDE 直接上传零飞线); SW5=ESP 复位键。
+
+实质更新:
+1. Services/esp_link.c/h —— UART6@2M(PC0/PC1) + RXNE 中断环形缓冲
+   (512B) + 协议解析(0xFB+id+vH+vL 参数直通 Params_SetById / 0xF9+sub
+   存盘·恢复出厂 / 0xFE+s1+s2 压差波形 3 分频≈60ms)。USE_ESP_LINK 门控。
+   diag 行(rx 计数/tx 样本, LOGD)用于链路对账。
+2. esp8266_link/esp8266_link.ino(独立文件夹=Arduino 规则)—— WiFi
+   (testttt)UDP:8888 纯管道桥(UART↔UDP 攒批 20ms, 断线自动重连,
+   [WIFI] 状态行回告)+README(烧录步骤)。
+3. serial_log.py 两修复: 断线自动重连(烧录/复位时 COM 消失不再崩溃);
+   轮转误触发修复(标记 in buf 未判位置→rfind>0 才轮转)。
+4. docs/烧录与串口调试规范.md 增第 8 节(ESP8266 链路)+端到端验证结论;
+   新增 docs/硬件调试坑记录.md——13 坑(现象→根因→解决→预防)+链路基线表。
+
+mode 切换决策(重要): 码道的 USBFS 运行时化(usbfs_device 12 处门控
+清零+serial_cmd 激活+main BKP 分发)真机测试 2Hz 复位死循环, 用户决定
+放弃并整体回退(git checkout 9 文件, fsck 先行)。serial_cmd 回"预留"
+语义。无线调参链路落地后该需求进一步消失。
+
+真机验证(闭环三连):
+- UDP 发 3 新参数+保存 → com9_log/log.txt 全解析 [I][esp] 参数 id=值
+- 切 MODE=2 直读 SD 卡 PARAMS.INI → 值真实变更(持久化实证)
+- UDP 发默认值+保存 → 恢复归位; diag rx 计数逐帧 +4 精确对账
+- 坑中坑: 发帧时把 debounce(id=10) 记成 home_x_center(id=11), 600 被
+  钳位到 max=10——钳位兜底正常; 教训=App 必须从 params.c 机器可读导出
+  id 对照表, 禁止手抄
+
+关键坑(详见 docs/硬件调试坑记录.md):
+- ESP8266 烧录超时: flash 芯片不响应(用户硬件修复), strap/链路排查全过
+- Puya flash(厂商 5e): 判活用 74880 抓 ROM 行, app 输出在 2M 分段抓
+- COM 身份: CH340=COM5 恒在; COM9=LinkE CDC 随插拔——常驻监听绑 COM5
+- esptool 需系统 python(有 pyserial); Arduino 自带 esptool.py 会落到
+  managed python(无 pyserial)报错
+- OpenOCD: 配置必须用 MounRiver bin/wch-riscv.cfg 写法, 驱动名 wch_riscv
+- "烧录即复位": program Verified OK 后芯片自动重启(reset run 命令本身
+  在本板无效, 但不影响烧录结果)
+
+验证: MODE=0 .text=41272 零警告; hosttest 125/125; BOOT #10→#13;
+端到端 UDP 参数/保存/恢复全链路实测通过。

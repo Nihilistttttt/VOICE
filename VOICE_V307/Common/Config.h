@@ -103,6 +103,7 @@
 #define USE_PRESSURE    1    /* 压差传感器          [板:V2=0 V3=1] */
 #define USE_AOA_PWR     1    /* 手机供电控制        [板:V2=0 V3=1] */
 #define USE_SDCARD      1    /* SD 卡(参数持久化)   [板:V2=0 V3=1] */
+#define USE_ESP_LINK    1    /* ESP8266 WiFi 调参   [板:V2=0 V3=1] */
 
 /*---- 一致性检查：特性开关不能超出板级能力 -------------------------------*/
 #if USE_MIC_HUM && !BOARD_HAS_MIC_HUM
