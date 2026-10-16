@@ -1,101 +1,170 @@
 /*
- * VOICE ESP8266 调参链路固件（纯管道桥）
+ * VOICE ESP8266 调参链路固件（参照 EEG 项目 CH32_Waveform.ino 架构）
  * ============================================================
- * 角色: ESP8266MOD 板载于 V3 主板, UART0(GPIO1/3) 直连 MCU UART6
- *       (PC0/PC1, 2M)。本固件把 WiFi UDP 与 UART 做透明双向桥:
+ * 角色: TCP client —— 连接热点网关(手机)的 41002 端口, 与配置 App
+ *       (手机上运行, TCP server)双向透传 UART↔TCP。
  *
- *         手机(UDP:8888) ⇄ WiFi ⇄ ESP8266 ⇄ UART0@2M ⇄ MCU(UART6)
+ *         MCU(UART6 帧协议) ⇄ UART0@2M ⇄ ESP8266 ⇄ TCP:41002 ⇄ 配置App
  *
- * 协议在 MCU 与手机之间(0xFB 参数/0xF9 存盘/0xFE 波形), 本固件不解析。
+ * 协议在 MCU 与 App 之间(v2 二进制成帧), 本固件只做透传+PING 拦截。
  *
- * 烧录本固件(硬件一键下载):
- *   1. 主板 SW3 拨到 CH340↔ESP8266 位 (CTRL0=GND)
- *   2. PC 打开 Arduino IDE(需 esp8266 core), 开发板选
- *      "Generic ESP8266 Module", 端口选本板 CH340
- *   3. 直接点上传 —— RTS/DTR 经 Q5/Q7 自动拉 GPIO0+复位进 boot
- *   4. 烧完把 SW3 拨回 UART6 位(CTRL0=3V3)
- *
- * 运行: 上电自动连 WiFi(testttt), 8000ms 内未连上自动重试;
- *       UART 收到字节 → UDP 发往最近对端(无对端则全网广播);
- *       UDP 收到字节 → UART 发往 MCU。状态经 [WIFI] 文本回告 MCU。
+ * 烧录: SW3 拨 CH340↔ESP8266 位 → Arduino IDE(COM8) 上传 → 拨回。
  */
 
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
+#include <EEPROM.h>
 
-static const char* WIFI_SSID = "testttt";
-static const char* WIFI_PASS = "12345678";
-static const unsigned int UDP_PORT = 8888;
+/* ========== EEPROM WiFi 配置档案(参照 EEG: 5 组 profile) ========== */
+#define EEPROM_SIZE 512
+#define WIFI_CFG_MAGIC 0xEE01
+#define WIFI_CFG_ADDR  0
+#define MAX_WIFI_PROFILES 5
 
-static WiFiUDP Udp;
-static IPAddress peer;        /* 最近对端(手机) */
-static bool peerKnown = false;
-static uint8_t txbuf[256];    /* UART→UDP 攒批缓冲 */
-static int txlen = 0;
-static unsigned long txBatchMs = 0;
+typedef struct {
+    char ssid[33];
+    char password[64];
+    uint8_t valid;
+    uint8_t is_default;
+} WifiProfile;
 
-static void wifiStatusToUart()
-{
-  bool up = (WiFi.status() == WL_CONNECTED);
-  static bool last = false;
-  static unsigned long lastReport = 0;
-  if (up != last || millis() - lastReport > 15000) {
-    last = up;
-    lastReport = millis();
-    /* ASCII 状态行: MCU 字节流解析器会忽略非 0xFB/0xF9 字节 */
-    Serial.printf("\r\n[WIFI] %s ip=%s rssi=%d\r\n",
-                  up ? "UP" : "DOWN",
-                  up ? WiFi.localIP().toString().c_str() : "-",
-                  up ? WiFi.RSSI() : 0);
-  }
+typedef struct {
+    uint16_t magic;
+    uint8_t  count;
+    uint8_t  active_idx;
+    WifiProfile profiles[MAX_WIFI_PROFILES];
+} WifiConfig;
+
+static WifiConfig wifiCfg;
+static bool wifiCfgDirty = false;
+
+static void loadWifiConfig() {
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.get(WIFI_CFG_ADDR, wifiCfg);
+    if (wifiCfg.magic != WIFI_CFG_MAGIC || wifiCfg.count > MAX_WIFI_PROFILES) {
+        wifiCfg.magic = WIFI_CFG_MAGIC;
+        wifiCfg.count = 1;
+        wifiCfg.active_idx = 0;
+        memset(wifiCfg.profiles, 0, sizeof(wifiCfg.profiles));
+        strncpy(wifiCfg.profiles[0].ssid, "testttt", 32);
+        strncpy(wifiCfg.profiles[0].password, "12345678", 63);
+        wifiCfg.profiles[0].valid = 1;
+        wifiCfg.profiles[0].is_default = 1;
+        wifiCfgDirty = true;
+    }
 }
 
-static void udpSend(const uint8_t* data, int len)
-{
-  Udp.beginPacket(peerKnown ? peer : IPAddress(255, 255, 255, 255), UDP_PORT);
-  Udp.write(data, len);
-  Udp.endPacket();
+static void saveWifiConfig() {
+    if (!wifiCfgDirty) return;
+    EEPROM.put(WIFI_CFG_ADDR, wifiCfg);
+    EEPROM.commit();
+    wifiCfgDirty = false;
+}
+
+/* ========== 网络连接: TCP client → 网关:41002 ========== */
+const uint16_t SERVER_PORT = 41002;
+IPAddress serverIP;
+WiFiClient tcpClient;
+
+/* ========== PING 心跳拦截（只拦 "PING\n" 五字节, 其余全透传） ========== */
+static uint8_t pingState = 0;
+static const uint8_t PING_PATTERN[] = {'P','I','N','G','\n'};
+
+static void checkPingAndForward(uint8_t b) {
+    if (b == PING_PATTERN[pingState]) {
+        pingState++;
+        if (pingState == 5) {
+            tcpClient.print("PONG\n");
+            pingState = 0;
+            return;
+        }
+    } else {
+        if (pingState > 0) {
+            for (uint8_t i = 0; i < pingState; i++) {
+                Serial.write(PING_PATTERN[i]);
+            }
+            pingState = 0;
+            if (b == PING_PATTERN[0]) {
+                pingState = 1;
+                return;
+            }
+        }
+        Serial.write(b);
+    }
+}
+
+void connectToWiFi() {
+    loadWifiConfig();
+    saveWifiConfig();
+
+    int idx = wifiCfg.active_idx;
+    if (idx >= MAX_WIFI_PROFILES || !wifiCfg.profiles[idx].valid) idx = 0;
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(wifiCfg.profiles[idx].ssid, wifiCfg.profiles[idx].password);
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+        delay(500);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        serverIP = WiFi.gatewayIP();      /* 服务端(配置App)恒在网关=手机 */
+        Serial.printf("\r\n[WIFI] UP ip=%s gw=%s\r\n",
+                      WiFi.localIP().toString().c_str(),
+                      serverIP.toString().c_str());
+    } else {
+        Serial.printf("\r\n[WIFI] DOWN\r\n");
+    }
+}
+
+bool connectToServer() {
+    if (!tcpClient.connected()) {
+        tcpClient.setNoDelay(true);
+        if (tcpClient.connect(serverIP, SERVER_PORT)) return true;
+        delay(2000);
+        return false;
+    }
+    return true;
 }
 
 void setup()
 {
-  Serial.begin(2000000);        /* UART0 ↔ MCU UART6, 与调试口统一 2M */
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  WiFi.setAutoReconnect(true);
-  Udp.begin(UDP_PORT);
-  Serial.printf("\r\n[WIFI] boot ssid=%s port=%u\r\n", WIFI_SSID, UDP_PORT);
+    Serial.begin(2000000);            /* UART0 ↔ MCU UART6 */
+    Serial.setRxBufferSize(4096);
+    connectToWiFi();
 }
 
 void loop()
 {
-  wifiStatusToUart();
+    if (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        connectToWiFi();
+        return;
+    }
 
-  /* UART → 攒批 → UDP (20ms 或 240B 触发) */
-  int avail = Serial.available();
-  while (avail > 0 && txlen < (int)sizeof(txbuf)) {
-    txbuf[txlen++] = (uint8_t)Serial.read();
-    avail--;
-    if (txlen >= 240) break;
-  }
-  unsigned long now = millis();
-  if (txlen > 0 && (now - txBatchMs >= 20 || txlen >= 240)) {
-    udpSend(txbuf, txlen);
-    txlen = 0;
-    txBatchMs = now;
-  } else if (txlen > 0) {
-    /* 等待攒批窗口 */
-  }
+    if (!connectToServer()) return;
 
-  /* UDP → UART */
-  int n = Udp.parsePacket();
-  if (n > 0) {
-    peer = Udp.remoteIP();
-    peerKnown = true;
-    uint8_t b[512];
-    int l = Udp.read(b, sizeof(b));
-    if (l > 0) Serial.write(b, l);
-  }
+    /* 1. TCP 下行: 透传到 MCU 串口（只拦截 PING 心跳） */
+    while (tcpClient.available()) {
+        uint8_t buf[128];
+        size_t len = tcpClient.available();
+        if (len > sizeof(buf)) len = sizeof(buf);
+        len = tcpClient.readBytes(buf, len);
+        for (size_t i = 0; i < len; i++) {
+            checkPingAndForward(buf[i]);
+        }
+    }
 
-  delay(1);
+    /* 2. 串口→TCP 上行透传（MCU 的 v2 帧原样转发） */
+    if (Serial.available()) {
+        size_t len = Serial.available();
+        uint8_t buf[256];
+        if (len > sizeof(buf)) len = sizeof(buf);
+        len = Serial.readBytes(buf, len);
+        tcpClient.write(buf, len);
+    }
+
+    yield();
+
+    if (!tcpClient.connected()) delay(100);
 }

@@ -1427,3 +1427,53 @@ mode 切换决策(重要): 码道的 USBFS 运行时化(usbfs_device 12 处门�
 
 验证: MODE=0 .text=41272 零警告; hosttest 125/125; BOOT #10→#13;
 端到端 UDP 参数/保存/恢复全链路实测通过。
+
+----------------------------------------
+一百二十九、配置 App(横屏波形版) + 协议 v2 成帧 + ESP8266 TCP 架构(EEG 采纳) + 双向闭环
+----------------------------------------
+
+背景: WiFi 链路(一百二十八)打通后, 用户要求统一二进制通信协议、
+配置 App 落地。期间发现并采纳 EEG 项目(CH32_Waveform.ino)的成熟
+架构——用户两次指正后确认的参考路线。
+
+协议 v2(统一二进制成帧, 两端同步升级):
+- 帧格式: 0xAA | LEN | TYPE | PAYLOAD(LEN B) | CRC8(异或)
+- TYPE: 0x01 PARAM_SET / 0x02 CMD(0=保存 1=恢复出厂) / 0x03 WAVE /
+  0x04 PARAM_ECHO(参数应用回执, App 自动确认)
+- 错帧滑动 1 字节重同步; 与旧 V2 裸字节流不兼容(两端已同步切换)
+
+ESP8266 端重构(采纳 EEG CH32_Waveform.ino 架构):
+- UDP 管道 → TCP client(连接热点网关:41002)——IP 漂移问题根治
+- EEPROM 五组 WiFi 档案(magic 校验, 默认 testttt/12345678)
+- PING/PONG 心跳拦截 + 4KB RX 缓冲 + 断线自动重连
+- 配置 App 为 TCP server(手机=热点网关), 完全对齐 EEG 医生端角色
+
+配置 App(voice_config/, voice_control 复制剥业务):
+- 横屏双页: [参数设置] 16 参数行(发/默键) + [实时波形] 独立页
+- 波形页完全照搬 EEG WaveformView 可控项: X 时间窗(5s/10s/20s) /
+  Y 量程(自动/±500/±200) / 暂停 / 清屏 + 阈值虚线(吹按/吹放/滚动)
+  随参数回执联动
+- 灵敏度语义翻转: App 显示"倍率"(越大越快), 内部换算 step_div=128/倍率
+- 每行"默"键只复位本框显示(用户语义纠正); TCP server+异步收发
+  (主线程零网络, StrictMode 闪退教训)
+
+App 构建(本机): JDK17(Java/jdk17, JAVA_HOME 默认 jdk8 太老),
+gradlew assembleDebug; voice_config 无需 Android Studio 即可出 APK。
+
+闪退三连修复(logcat 实锤):
+1. buildFrame 数组越界(3+len-1 少一字节, CRC 写 3+len)——每帧必崩
+2. appendLog 引用被重构删除的 mLogText → NPE——恢复日志区+null 防护
+3. (教训)Write 重写文件后必查 import 块; byte=三元式需显式强转
+
+MCU 修复:
+- EspLink_Poll/Cmd_Poll/Log_Service 移出"已枚举"分支——未接患者
+  手机时调参链路/CLI 必须可用(此前整链不执行的根因)
+- 摇杆指针 int8 回卷修复: 先在 int32 钳位 ±joy_clamp 再窄化——
+  step_div 调小后 offset/step_div>127 回卷为负=指针反向(用户实测)
+
+验证(全链路): 下行 PC→WiFi→ESP→UART6→MCU 参数应用(ok 计数逐帧
+对账); 上行 MCU 回执/波形→ESP→WiFi→PC ECHO 精确匹配; 持久化
+MODE=2 直读 PARAMS.INI 实证; App 装机(adb install)真机操作。
+
+遗留: 波形滚动速度偏慢的观感已通过 X 窗口切换缓解; ESP RX@2M
+理论可靠性存疑但实测 8/8 帧+正常使用未复现故障。

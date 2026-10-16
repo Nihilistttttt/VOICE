@@ -7,14 +7,17 @@
  *   通道 1/2 同时保持 CH340↔USART1 —— 调试打印与 WiFi 共存。
  *
  * 波特率: 2000000(与调试口统一, EEG 家族标准)。ESP8266 侧 ino 同速。
- * 协议(MCU↔手机, ESP8266 为透明管道; 手机经 WiFi UDP:8888 收发):
- *   手机→MCU: 0xFB+id+vH+vL  参数下行(直通 Params_SetById, min/max 钳位)
- *             0xF9+sub        sub=0 保存参数 / sub=1 恢复出厂
- *   MCU→手机: 0xFE+s1(2B)+s2(2B)  压差波形包(3 分频≈60ms, int16 Pa)
- * 兼容性: 与 V2 AOA 字节流协议同构, 旧 App 逻辑可平滑迁移。
  *
- * 诊断(临时): EspLink_Poll 每秒输出 rx 计数与 tx 样本, 用于隔离
- * UART6 与 U4 通道 3/4 的链路故障(2026-10-16)。
+ * 协议 v2 —— 统一二进制成帧(与配置 App/后续所有通信统一):
+ *   帧格式: 0xAA | LEN | TYPE | PAYLOAD(LEN B) | CRC8
+ *           LEN = TYPE+PAYLOAD 的字节数(不含头/CRC); CRC8 = TYPE 起
+ *           逐字节异或(含 TYPE 与 PAYLOAD)。错帧滑动 1 字节重同步。
+ *   TYPE: 0x01 PARAM_SET(id+val16 大端)   App→MCU 设置参数
+ *         0x02 CMD(sub)                   App→MCU 0=保存 1=恢复出厂
+ *         0x03 WAVE(s1_16+s2_16 大端)     MCU→App 压差波形
+ *         0x04 PARAM_ECHO(id+val16)       MCU→App 参数应用回执
+ * 兼容性: ESP8266 为纯管道无感知; 与旧 V2 字节流(0xFB 裸帧)不兼容,
+ *         两端(MCU/App)已同步升级。
  *============================================================================*/
 
 #include "esp_link.h"
@@ -34,49 +37,133 @@
 #define ESP_TX_DIV      3           /* 波形包分频: 每 3 tick ≈ 60ms */
 #define ESP_DIAG_DIV    20          /* 诊断行分频: 每 20 tick = 1s */
 
+#define FRAME_HEAD      0xAA
+#define FRAME_MAX_PAY   32
+#define TYPE_PARAM_SET  0x01
+#define TYPE_CMD        0x02
+#define TYPE_WAVE       0x03
+#define TYPE_PARAM_ECHO 0x04
+
 /* ---- 运行时状态 -----------------------------------------------------------*/
 static volatile uint8_t  s_ring[ESP_RX_RING];
 static volatile uint16_t s_head = 0;    /* IRQ 写 */
 static volatile uint16_t s_tail = 0;    /* 主循环读 */
 static volatile uint32_t s_rx_count = 0;/* IRQ 收到字节总数(诊断) */
-static uint8_t   s_pstate = 0;          /* RX 状态: 0=头 1=id 2=vH 3=vL 4=F9子命令 */
-static uint8_t   s_pid = 0;
-static uint8_t   s_pvh = 0;
 static uint32_t  s_rx_drop = 0;         /* 环满丢弃计数 */
+static uint32_t  s_frame_ok = 0;        /* CRC 通过帧数(诊断) */
+static uint32_t  s_frame_bad = 0;       /* CRC 失败帧数(诊断) */
+
+/* RX 帧状态机 */
+static uint8_t  s_fstate = 0;           /* 0=找头 1=LEN 2=TYPE 3=PAYLOAD 4=CRC */
+static uint8_t  s_flen = 0;
+static uint8_t  s_ftype = 0;
+static uint8_t  s_fcrc = 0;
+static uint8_t  s_fpay[FRAME_MAX_PAY];
+static uint8_t  s_fidx = 0;
 
 /**
- * @brief RX 单字节处理（字节流状态机, 与 V2 phone_control 同构）
+ * @brief CRC8: 从 type 起逐字节异或(含 type 与 payload, 不含 LEN/头)
  */
-static void esp_parse_byte(uint8_t b)
+static uint8_t frame_crc(uint8_t type, const uint8_t *pay, uint8_t len)
 {
-    switch (s_pstate) {
-    case 0:
-        if (b == 0xFB)      { s_pstate = 1; }
-        else if (b == 0xF9) { s_pstate = 4; }
-        break;
-    case 1: s_pid = b; s_pstate = 2; break;
-    case 2: s_pvh = b; s_pstate = 3; break;
-    case 3: {
-        int32_t v = ((int32_t)s_pvh << 8) | b;
-        if (Params_SetById(s_pid, v) != 0) {
-            LOGI("esp", "参数 %u=%ld", s_pid, (long)v);
+    uint8_t c = type;
+    for (uint8_t i = 0; i < len; i++) {
+        c ^= pay[i];
+    }
+    return c;
+}
+
+/**
+ * @brief 发送一帧(阻塞式, 5+LEN 字节)
+ */
+static void esp_send_frame(uint8_t type, const uint8_t *pay, uint8_t len)
+{
+    uint8_t head[3] = { FRAME_HEAD, (uint8_t)(len + 1), type };
+    uint8_t crc = frame_crc(type, pay, len);
+    for (int i = 0; i < 3; i++) {
+        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+        USART_SendData(UART6, head[i]);
+    }
+    for (uint8_t i = 0; i < len; i++) {
+        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+        USART_SendData(UART6, pay[i]);
+    }
+    while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+    USART_SendData(UART6, crc);
+}
+
+/**
+ * @brief 完整帧处理(CRC 已通过)
+ */
+static void esp_process_frame(uint8_t type, const uint8_t *pay, uint8_t len)
+{
+    s_frame_ok++;
+    switch (type) {
+    case TYPE_PARAM_SET: {
+        if (len != 3) return;
+        uint8_t id = pay[0];
+        int32_t v = ((int32_t)pay[1] << 8) | pay[2];
+        if (Params_SetById(id, v) != 0) {
+            LOGI("esp", "参数 %u=%ld", id, (long)v);
+            uint8_t echo[3] = { id, pay[1], pay[2] };
+            esp_send_frame(TYPE_PARAM_ECHO, echo, 3);   /* 回执 */
         } else {
-            LOGW("esp", "未知参数 id=%u", s_pid);
+            LOGW("esp", "未知参数 id=%u", id);
         }
-        s_pstate = 0; break; }
-    case 4:
-        if (b == 0) {
+        break; }
+    case TYPE_CMD: {
+        if (len != 1) return;
+        if (pay[0] == 0) {
             (void)Params_SD_Save();
             LOGI("esp", "参数已保存");
-        } else if (b == 1) {
+        } else if (pay[0] == 1) {
             (void)Params_SD_FactoryReset();
             LOGI("esp", "已恢复出厂默认值");
         } else {
-            LOGW("esp", "未知 0xF9 子命令 %u", b);
+            LOGW("esp", "未知 CMD 子命令 %u", pay[0]);
         }
-        s_pstate = 0; break;
+        break; }
     default:
-        s_pstate = 0; break;
+        break;                          /* 未知类型静默(前向兼容) */
+    }
+}
+
+/**
+ * @brief RX 字节 → 帧状态机(错帧滑动 1 字节重同步)
+ */
+static void esp_parse_byte(uint8_t b)
+{
+    switch (s_fstate) {
+    case 0:                             /* 找头 */
+        if (b == FRAME_HEAD) { s_fstate = 1; }
+        break;
+    case 1:                             /* LEN = TYPE+PAYLOAD */
+        if (b >= 1 && b <= FRAME_MAX_PAY + 1) {
+            s_flen = (uint8_t)(b - 1);
+            s_fstate = 2;
+        } else {
+            s_fstate = 0;               /* 非法长度, 重找头 */
+        }
+        break;
+    case 2:                             /* TYPE */
+        s_ftype = b; s_fcrc = b; s_fidx = 0;
+        s_fstate = (s_flen == 0) ? 4 : 3;
+        break;
+    case 3:                             /* PAYLOAD */
+        if (s_fidx < FRAME_MAX_PAY) { s_fpay[s_fidx++] = b; }
+        s_fcrc ^= b;
+        if (--s_flen == 0) { s_fstate = 4; }
+        break;
+    case 4:                             /* CRC */
+        if (b == s_fcrc) {
+            esp_process_frame(s_ftype, s_fpay, s_fidx);
+        } else {
+            s_frame_bad++;              /* 错帧: 丢弃 */
+        }
+        s_fstate = 0;
+        break;
+    default:
+        s_fstate = 0; break;
     }
 }
 
@@ -121,15 +208,15 @@ void EspLink_Init(void)
     USART_Cmd(UART6, ENABLE);
     NVIC_EnableIRQ(UART6_IRQn);
 
-    LOGI("esp", "UART6@2M 就绪(PC0/PC1)");
+    LOGI("esp", "UART6@2M 就绪, 协议 v2 成帧");
 }
 
 /**
- * @brief 消化接收环 → 协议解析; 周期发送压差波形包; 诊断输出
+ * @brief 消化接收环 → 帧解析; 周期发送波形帧; 诊断输出
  */
 void EspLink_Poll(int32_t p1, int32_t p2)
 {
-    /* RX: 排空接收环 */
+    /* RX: 排空接收环 → 帧状态机 */
     while (s_tail != s_head) {
         uint8_t b = s_ring[s_tail];
         s_tail = (uint16_t)((s_tail + 1) % ESP_RX_RING);
@@ -140,11 +227,10 @@ void EspLink_Poll(int32_t p1, int32_t p2)
         s_rx_drop = 0;
     }
 
-    /* TX: 波形包 0xFE + s1 + s2 (int16 饱和钳位, 32 位运算防溢出) */
+    /* TX: 波形帧 WAVE(s1,s2) — int16 饱和钳位, 32 位运算防溢出 */
     static uint32_t tx_div = 0;
-    static uint8_t  last_tx[5] = {0};
-    uint8_t  t[5] = {0};
-    uint8_t  tx_now = 0;
+    uint8_t t[4] = {0};
+    uint8_t tx_now = 0;
 
     if (++tx_div >= ESP_TX_DIV) {
         tx_div = 0;
@@ -153,26 +239,19 @@ void EspLink_Poll(int32_t p1, int32_t p2)
         if (a > 32767)  { a = 32767; }
         if (b < -32768) { b = -32768; }
         if (b > 32767)  { b = 32767; }
-        t[0] = 0xFE;
-        t[1] = (uint8_t)((uint32_t)a >> 8); t[2] = (uint8_t)a;
-        t[3] = (uint8_t)((uint32_t)b >> 8); t[4] = (uint8_t)b;
-        for (int i = 0; i < 5; i++) {
-            while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
-            USART_SendData(UART6, t[i]);
-        }
+        t[0] = (uint8_t)((uint32_t)a >> 8); t[1] = (uint8_t)a;
+        t[2] = (uint8_t)((uint32_t)b >> 8); t[3] = (uint8_t)b;
+        esp_send_frame(TYPE_WAVE, t, 4);
         tx_now = 1;
     }
 
-    /* 诊断: 每秒一条 rx 计数与最近 TX 样本(LOGD, log=3 时可见) */
+    /* 诊断: 每秒一条(字节/帧 计数与最近波形样本, LOGD) */
     static uint32_t diag_div = 0;
     if (++diag_div >= ESP_DIAG_DIV) {
         diag_div = 0;
-        if (tx_now) {
-            memcpy(last_tx, t, 5);
-        }
-        LOGD("esp", "diag rx=%lu drop=%lu tx=%02X %02X %02X %02X %02X%s",
-             (unsigned long)s_rx_count, (unsigned long)s_rx_drop,
-             last_tx[0], last_tx[1], last_tx[2], last_tx[3], last_tx[4],
+        LOGD("esp", "diag rx=%lu ok=%lu bad=%lu wave=%02X%02X %02X%02X%s",
+             (unsigned long)s_rx_count, (unsigned long)s_frame_ok,
+             (unsigned long)s_frame_bad, t[0], t[1], t[2], t[3],
              tx_now ? "" : " (本秒未发)");
     }
 }

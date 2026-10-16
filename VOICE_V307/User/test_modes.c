@@ -336,10 +336,16 @@ void Mode_HidMouse(void)
 #define HOME_KB_WAIT_TICKS  1
 #endif
 
+    int32_t p1 = 0, p2 = 0;     /* 摇杆/波形共用: 未枚举时保持 0 */
+
     while (1) {
+        /* 与 USB 枚举状态无关的常驻服务(未接患者手机时 CLI/WiFi 调参
+         * 仍必须可用——这正是它们存在的意义) */
+        Log_Service();          /* 日志限频刷 SD */
+        Cmd_Poll(1);            /* 调试串口命令(save/factory/log) */
+        EspLink_Poll(p1, p2);   /* WiFi 调参: 参数下行解析+波形(旧值) */
+
         if (USBFS_DevEnumStatus) {
-            Log_Service();      /* 日志限频刷 SD(缓冲有积压且超时时才真正写) */
-            Cmd_Poll(1);        /* 调试串口命令(mode/save/factory/log) */
             /* 节奏策略: 回主页序列按相选择, 其余 50ms/圈
              * ★ Android 指针加速度把"发多快"耦合进"走多远": 冲角段可快发
              *   (钳位兜底), X/Y 定位段必须 25ms/帧, 点击保持 30ms */
@@ -359,11 +365,8 @@ void Mode_HidMouse(void)
             /* 手势映射（状态机实现见 Common/gesture_sm.c, 阈值/行为与原内联版一致）:
              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
              *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
-            int32_t p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
-            int32_t p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
-
-            /* WiFi 调参链路: 参数下行直通参数表, 压差波形上行(UDP:8888) */
-            EspLink_Poll(p1, p2);
+            p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
 
             /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页 */
             s2_cmd_t cmd = s2_sm_step(&s2, p2);
@@ -393,13 +396,18 @@ void Mode_HidMouse(void)
             if (x_off > -g_params.joy_deadzone && x_off < g_params.joy_deadzone) { x_off = 0; }
             if (y_off > -g_params.joy_deadzone && y_off < g_params.joy_deadzone) { y_off = 0; }
 
-            int8_t mx = (int8_t)(-y_off / g_params.joy_step_div);
-            int8_t my = (int8_t)(-x_off / g_params.joy_step_div);
+            /* 速度映射: 位移 = offset/step_div(线性区), clamp 限极速。
+             * ★ 先在 int32 上钳位再窄化 int8 —— 直接窄化会在
+             *   |offset|/step_div > 127 时回卷为负(指针反向的根因) */
+            int m_x = -y_off / g_params.joy_step_div;
+            int m_y = -x_off / g_params.joy_step_div;
+            if (m_x >  g_params.joy_clamp) { m_x =  g_params.joy_clamp; }
+            if (m_x < -g_params.joy_clamp) { m_x = -g_params.joy_clamp; }
+            if (m_y >  g_params.joy_clamp) { m_y =  g_params.joy_clamp; }
+            if (m_y < -g_params.joy_clamp) { m_y = -g_params.joy_clamp; }
+            int8_t mx = (int8_t)m_x;
+            int8_t my = (int8_t)m_y;
 
-            if (mx > g_params.joy_clamp)  { mx = g_params.joy_clamp; }
-            if (mx < -g_params.joy_clamp) { mx = -g_params.joy_clamp; }
-            if (my > g_params.joy_clamp)  { my = g_params.joy_clamp; }
-            if (my < -g_params.joy_clamp) { my = -g_params.joy_clamp; }
 
             /* s1 单口手势（滚动期间状态冻结不推进, 与原门控一致）*/
             s1_out_t so;
