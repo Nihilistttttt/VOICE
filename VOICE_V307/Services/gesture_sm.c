@@ -27,6 +27,36 @@
 #include "gesture_sm.h"
 
 /*============================================================================
+ * cmd_arb —— 跨种类命令仲裁（模块级共享）
+ *   5 个命令发起点(左键按下/中键/滚动进入/AltTab/回主页)统一查询;
+ *   异种且冷却中 → 拒绝(吞掉), 同种或冷却耗尽 → 放行并重置冷却。
+ *============================================================================*/
+static cmd_kind_t arb_last_kind = CMD_NONE;
+static int16_t    arb_cooldown  = 0;         /* 剩余 tick 数 */
+
+void cmd_arb_tick(void)
+{
+    if (arb_cooldown > 0) { arb_cooldown--; }
+}
+
+uint8_t cmd_arb_allow(cmd_kind_t kind)
+{
+    if (kind == CMD_NONE) { return 1; }
+    if (arb_last_kind != CMD_NONE && arb_last_kind != kind && arb_cooldown > 0) {
+        return 0;       /* 距不同种命令不足 cmd_gap_ms → 拒绝 */
+    }
+    arb_last_kind = kind;
+    arb_cooldown  = (int16_t)((g_params.cmd_gap_ms + GS_TICK_MS - 1) / GS_TICK_MS);
+    return 1;
+}
+
+void cmd_arb_reset(void)
+{
+    arb_last_kind = CMD_NONE;
+    arb_cooldown  = 0;
+}
+
+/*============================================================================
  * s1 —— 单口手势
  *   状态: IDLE(无手势) / TIMING(吸住计时) / VOLUME(音量模式)
  *   转移: IDLE→TIMING(吸去抖达标) TIMING→IDLE(松口, 短吸发中键两相)
@@ -56,8 +86,11 @@ static const struct smf_state gs1_states[GS1_NUM] = {
 /**
  * @brief 吹气迟滞更新（每拍共享逻辑, 等价于原始内联的吹气块）
  *
- * 按下: 未按 && p1≥250 && 另一口空闲(|p2|<100) → 去抖 2 拍置左键位
- * 释放: 已按 && p1≤150（迟滞下沿）→ 清左键位
+ * 按下: 未按 && p1≥press_on && 另一口空闲(|p2|<idle_win) → 连续
+ *       blow_debounce 拍(默认3, 比双口确认多1拍)才置左键位——给
+ *       双吹判定(scroll 同向 pair_debounce 拍)留出仲裁窗口, 防止
+ *       "p1 先吹 p2 慢爬"的时序里 s1 抢先按下(双吹误触单吹的根因)
+ * 释放: 已按 && p1≤press_off（迟滞下沿）→ 清左键位
  * 其余: 未按且条件不满足 → 去抖计数清零
  *
  * @param sm 状态机
@@ -67,9 +100,13 @@ static const struct smf_state gs1_states[GS1_NUM] = {
 static void gs1_blow_update(s1_sm_t *sm, int32_t p1, int32_t p2)
 {
     if (!(sm->btn & GS_BTN_LEFT) && p1 >= g_params.press_on && p2 > -g_params.idle_win && p2 < g_params.idle_win) {
-        if (++sm->blow_n >= g_params.debounce) {
-            sm->btn |= GS_BTN_LEFT;
-            sm->blow_n = g_params.debounce;   /* 钳在阈值, 防溢出且便于断言 */
+        if (++sm->blow_n >= g_params.blow_debounce) {
+            if (cmd_arb_allow(CMD_LEFT)) {
+                sm->btn |= GS_BTN_LEFT;
+            }
+            sm->blow_n = 0;     /* 确认即消费: 拒绝时清零重数——持续吹会在
+                                 * 冷却耗尽后的下一确认周期自然通过,
+                                 * 瞬时误触自然消失 */
         }
     } else if ((sm->btn & GS_BTN_LEFT) && p1 <= g_params.press_off) {
         sm->btn &= (uint8_t)~GS_BTN_LEFT;
@@ -144,9 +181,12 @@ static enum smf_state_result gs1_timing_run(void *obj)
     gs1_blow_update(sm, sm->p1_tick, sm->p2_tick);
 
     if (sm->p1_tick >= -g_params.press_off) {
-        /* 松口: 短吸(计时未达长按阈值)=中键点击; 计时归零回 IDLE */
+        /* 松口: 短吸(计时未达长按阈值)=中键点击; 计时归零回 IDLE。
+         * 仲裁拒绝 → 本次短吸被吞(距异种命令不足间隔的误判防护) */
         if (sm->sip_ms < g_params.long_ms) {
-            sm->rclick_pend = 2;    /* 当拍由本 run 尾部的 rclick_update 按下 */
+            if (cmd_arb_allow(CMD_MIDDLE)) {
+                sm->rclick_pend = 2;    /* 当拍由本 run 尾部的 rclick_update 按下 */
+            }
         }
         sm->sip_n = 0;
         smf_set_state(&sm->ctx, &gs1_states[GS1_IDLE]);
@@ -255,19 +295,36 @@ static void gscr_idle_entry(void *obj)
     sm->active = 0;
     sm->dir = 0;
     sm->n = 0;
+    sm->pair_n = 0;
 }
 
-/* IDLE 运行: 双吹→上滚 / 双吸→下滚（进入当拍不出格）*/
+/* IDLE 运行: 双吹→上滚 / 双吸→下滚。两口同向须持续 pair_debounce 拍
+ * (默认2)才进入——配合 s1 的 blow_debounce(3拍) 构成双口仲裁:
+ * "p1 先吹 p2 慢爬"时序下 scroll 先于 s1 确认, s1 在按下前被冻结。 */
 static enum smf_state_result gscr_idle_run(void *obj)
 {
     scroll_sm_t *sm = (scroll_sm_t *)obj;
 
     if (sm->p1_tick >= g_params.scroll_on && sm->p2_tick >= g_params.scroll_on) {
         sm->dir = -1;                               /* 双吹 = 上滚 */
-        smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
+        if (++sm->pair_n >= g_params.pair_debounce) {
+            if (cmd_arb_allow(CMD_SCROLL)) {
+                smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
+            } else {
+                sm->pair_n = 0;     /* 仲裁拒绝: 重新确认(持续双吹会在冷却后通过) */
+            }
+        }
     } else if (sm->p1_tick <= -g_params.scroll_on && sm->p2_tick <= -g_params.scroll_on) {
         sm->dir = 1;                                /* 双吸 = 下滚 */
-        smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
+        if (++sm->pair_n >= g_params.pair_debounce) {
+            if (cmd_arb_allow(CMD_SCROLL)) {
+                smf_set_state(&sm->ctx, &gscr_states[GSCR_ACTIVE]);
+            } else {
+                sm->pair_n = 0;
+            }
+        }
+    } else {
+        sm->pair_n = 0;                             /* 同向中断 → 重新计 */
     }
     return SMF_EVENT_HANDLED;
 }
@@ -311,6 +368,7 @@ void scroll_sm_init(scroll_sm_t *sm)
     sm->active = 0;
     sm->dir = 0;
     sm->n = 0;
+    sm->pair_n = 0;
     sm->wheel_out = 0;
     sm->p1_tick = 0;
     sm->p2_tick = 0;
@@ -400,8 +458,8 @@ static enum smf_state_result gs2_hold_blow_run(void *obj)
     s2_sm_t *sm = (s2_sm_t *)obj;
 
     if (sm->p2_tick <= g_params.press_off) {
-        if (sm->ms < g_params.long_ms) {
-            sm->cmd_out = S2_ALTTAB;    /* 短吹松口 → 多任务切换 */
+        if (sm->ms < g_params.long_ms && cmd_arb_allow(CMD_ALTTAB)) {
+            sm->cmd_out = S2_ALTTAB;    /* 短吹松口 → 多任务切换(仲裁可拒) */
         }
         smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
     } else {
@@ -418,14 +476,15 @@ static void gs2_hold_sip_entry(void *obj)
     sm->ms = 0;
 }
 
-/* 吸按住运行: 松口→短吸发回主页（长按不发）, 否则计时 */
+/* 吸按住运行: 松口→短吸(窗口 s2_short_ms, 默认800ms, 独立于吹侧
+ * 长按 long_ms——"想返回的吸"稍慢松口仍是返回)发回主页, 长按不发 */
 static enum smf_state_result gs2_hold_sip_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
     if (sm->p2_tick >= -g_params.press_off) {
-        if (sm->ms < g_params.long_ms) {
-            sm->cmd_out = S2_HOME;      /* 短吸松口 → 回主页 */
+        if (sm->ms < g_params.s2_short_ms && cmd_arb_allow(CMD_HOME)) {
+            sm->cmd_out = S2_HOME;      /* 短吸松口 → 回主页(仲裁可拒) */
         }
         smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
     } else {
@@ -447,11 +506,15 @@ void s2_sm_init(s2_sm_t *sm)
     sm->sip_n = 0;
     sm->cmd_out = S2_NONE;
     sm->p2_tick = 0;
+    sm->freeze = 0;
     smf_set_initial(&sm->ctx, &gs2_states[GS2_IDLE]);
 }
 
 /**
  * @brief s2 每 tick 推进一步
+ *
+ * 冻结期间不推进 SMF（双口滚动期间由调用方置 freeze——双吸滚动时
+ * 不计短吸窗口, 防止滚动结束松口误发回主页）。
  *
  * @param sm 状态机
  * @param p2 s2 口压力 Pa
@@ -462,7 +525,9 @@ s2_cmd_t s2_sm_step(s2_sm_t *sm, int32_t p2)
     sm->p2_tick = p2;
     sm->cmd_out = S2_NONE;  /* 默认无命令, run 覆写 */
 
-    (void)smf_run_state(&sm->ctx);
+    if (!sm->freeze) {
+        (void)smf_run_state(&sm->ctx);
+    }
 
     return sm->cmd_out;
 }

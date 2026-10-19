@@ -42,6 +42,12 @@ typedef struct {
     int32_t home_flood_ticks;   /* 冲角 tick 数       默认 12  */
     int32_t click_hold_ms;      /* 点击保持 ms        默认 30  */
     int32_t locate_ms;          /* 定位段节奏 ms      默认 25  */
+    /* 双口仲裁(s2) */
+    int32_t pair_debounce;      /* 双口同向确认拍数   默认 2   */
+    int32_t blow_debounce;      /* s1吹按下确认拍数   默认 3   */
+    int32_t s2_short_ms;        /* s2短吸回主页窗口ms 默认 800 */
+    /* 命令仲裁 */
+    int32_t cmd_gap_ms;         /* 异种命令最小间隔ms 默认 500 */
 } voice_params_t;
 
 /* 运行时唯一真源(静态初始化为默认值) */
@@ -101,6 +107,10 @@ int32_t Params_GetByIndex(uint8_t idx, const char **name);
 #define PARAM_ID_HOME_FLOOD_TICKS 13
 #define PARAM_ID_CLICK_HOLD_MS    14
 #define PARAM_ID_LOCATE_MS        15
-#define PARAM_ID_NUM              16
+#define PARAM_ID_PAIR_DEBOUNCE    16
+#define PARAM_ID_BLOW_DEBOUNCE    17
+#define PARAM_ID_S2_SHORT_MS      18
+#define PARAM_ID_CMD_GAP_MS       19
+#define PARAM_ID_NUM              20
 
 #endif /* __PARAMS_H__ */

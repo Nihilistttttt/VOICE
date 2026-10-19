@@ -37,6 +37,26 @@
 #define GS_BTN_MIDDLE   0x04    /* bit2: 中键（EMUI 返回键）*/
 
 /*============================================================================
+ * cmd_arb —— 跨种类命令仲裁（模块级共享, 纯逻辑）
+ *   不同种类命令间至少间隔 cmd_gap_ms(默认500ms, 可调), 防一次误触连出
+ *   两种命令; 同种命令不受限(连续点击/连续滚动必须保留)。
+ *   拒绝=吞掉本次; 持续意图(继续吹/吸)会在冷却耗尽后的下一确认周期
+ *   自然通过, 瞬时误触自然消失。
+ *============================================================================*/
+typedef enum {
+    CMD_NONE = 0,
+    CMD_LEFT,       /* s1 左键(点击/拖拽按下) */
+    CMD_MIDDLE,     /* s1 中键(返回) */
+    CMD_SCROLL,     /* 双口滚动进入 */
+    CMD_ALTTAB,     /* s2 Alt+Tab */
+    CMD_HOME,       /* s2 回主页 */
+} cmd_kind_t;
+
+void     cmd_arb_tick(void);                 /* 主循环每拍调用: 冷却递减 */
+uint8_t  cmd_arb_allow(cmd_kind_t kind);     /* 命令放行查询+登记(1=放行) */
+void     cmd_arb_reset(void);                /* 测试/模式入口复位 */
+
+/*============================================================================
  * s1 —— 单口手势: 吹=左键点击/吹住=拖拽, 短吸=中键点击, 吸住=音量模式
  *
  * SMF 建模: 扁平三状态（IDLE/TIMING/VOLUME）。
@@ -85,6 +105,7 @@ typedef struct {
     uint8_t active;     /* 镜像: 1=滚动中 */
     int8_t  dir;        /* 镜像: +1=向下  -1=向上 */
     uint8_t n;          /* 限速计数 */
+    uint8_t pair_n;     /* 进入去抖计数: 两口同向持续 pair_debounce 拍才进入 */
     int8_t  wheel_out;  /* 输出槽: 本 tick 滚轮增量 */
     int32_t p1_tick;    /* 输入槽: 本 tick s1 口压力（step 写入, run 读取）*/
     int32_t p2_tick;    /* 输入槽: 本 tick s2 口压力 */
@@ -112,6 +133,7 @@ typedef struct {
     uint8_t  sip_n;     /* 吸去抖计数 */
     s2_cmd_t cmd_out;   /* 输出槽: 一次性命令 */
     int32_t  p2_tick;   /* 输入槽: 本 tick s2 口压力（step 写入, run 读取）*/
+    uint8_t  freeze;    /* 输入槽: 1=冻结推进（双口滚动期间由调用方置位）*/
 } s2_sm_t;
 
 void s2_sm_init(s2_sm_t *sm);

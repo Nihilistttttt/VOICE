@@ -36,6 +36,10 @@ voice_params_t g_params = {
     .home_flood_ticks  = 12,
     .click_hold_ms     = 30,
     .locate_ms         = 25,
+    .pair_debounce     = 2,
+    .blow_debounce     = 3,
+    .s2_short_ms       = 800,
+    .cmd_gap_ms        = 500,
 };
 
 /*---------------------------------------------------------------------------
@@ -69,6 +73,10 @@ static param_desc_t s_desc[PARAM_ID_NUM] = {
     [PARAM_ID_HOME_FLOOD_TICKS] = { PARAM_ID_HOME_FLOOD_TICKS, "home_flood_ticks", &g_params.home_flood_ticks, 12,     4,   60   },
     [PARAM_ID_CLICK_HOLD_MS]    = { PARAM_ID_CLICK_HOLD_MS,    "click_hold_ms",    &g_params.click_hold_ms,    30,     5,   200  },
     [PARAM_ID_LOCATE_MS]        = { PARAM_ID_LOCATE_MS,        "locate_ms",        &g_params.locate_ms,        25,     5,   100  },
+    [PARAM_ID_PAIR_DEBOUNCE]    = { PARAM_ID_PAIR_DEBOUNCE,    "pair_debounce",    &g_params.pair_debounce,    2,      1,   10   },
+    [PARAM_ID_BLOW_DEBOUNCE]    = { PARAM_ID_BLOW_DEBOUNCE,    "blow_debounce",    &g_params.blow_debounce,    3,      1,   10   },
+    [PARAM_ID_S2_SHORT_MS]      = { PARAM_ID_S2_SHORT_MS,      "s2_short_ms",      &g_params.s2_short_ms,      800,    100, 2000 },
+    [PARAM_ID_CMD_GAP_MS]       = { PARAM_ID_CMD_GAP_MS,       "cmd_gap_ms",       &g_params.cmd_gap_ms,       500,    100, 2000 },
 };
 
 /**

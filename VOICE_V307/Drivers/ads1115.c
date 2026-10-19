@@ -32,17 +32,24 @@
  *   注: 转换寄存器读数被破坏无 CRC 不可检, 本通道只覆盖"写配置失败"
  *   与"OS 位轮询超时"两类可检失败 —— 足以覆盖总线断线/器件掉电。
  *============================================================================*/
-#define ADS1115_FAIL_DEAD_TH   20      /* 连续失败 N 次 → 判总线失效 */
+#define ADS1115_FAIL_DEAD_TH   20      /* 连续失败 N 次 → 判总线失效并尝试恢复 */
 
 static uint16_t s_fail_streak = 0;     /* 连续失败计数（成功清零）*/
 static uint8_t  s_bus_dead = 0;        /* 总线失效锁存 */
 
+static void transport_recover(void);   /* 总线恢复序列（传输层实现, 见下）*/
+
 static void ads_note_fail(void)
 {
-    if (++s_fail_streak >= ADS1115_FAIL_DEAD_TH && !s_bus_dead) {
-        s_bus_dead = 1;
-        printf("[ADS1115] !! BUS DEAD: %u consecutive fails, readings invalid\r\n",
-               (unsigned)s_fail_streak);
+    ++s_fail_streak;
+    /* 每 TH 次失败触发一轮总线恢复(首轮判定 DEAD + 打印, 之后每 TH 次重试) */
+    if (s_fail_streak % ADS1115_FAIL_DEAD_TH == 0) {
+        if (!s_bus_dead) {
+            s_bus_dead = 1;
+            printf("[ADS1115] !! BUS DEAD: %u consecutive fails, try recovery\r\n",
+                   (unsigned)s_fail_streak);
+        }
+        transport_recover();       /* 总线恢复序列(见传输层实现) */
     }
 }
 
@@ -77,6 +84,8 @@ static void ads_alert_isr(void) { s_alert_flag = 1; }
 #define ADS1115_I2C_SPEED      400000   /* 上拉 2.2k，ADS1115 规格支持 400k */
 #define ADS1115_I2C_TIMEOUT    20000    /* 事件等待循环上限 */
 
+static void transport_init(void);      /* 前置: i2c_bus_recover 末尾重新初始化用 */
+
 static uint8_t i2c_wait_event(uint32_t event)
 {
     uint32_t t = ADS1115_I2C_TIMEOUT;
@@ -99,6 +108,54 @@ static void i2c_bus_release(void)
 {
     I2C_GenerateSTOP(ADS1115_I2C_INSTANCE, ENABLE);
     I2C_Cmd(ADS1115_I2C_INSTANCE, ENABLE);   /* 读 SR1+写 CR1 顺带清 STOPF */
+}
+
+/*---------------------------------------------------------------------------
+ * 总线恢复序列 —— 从机卡死拉住 SDA / 外设状态机错乱的唯一自愈通道
+ *   1) SWRST 外设软复位(唯一能清 BUSY 卡死的手段)
+ *   2) 引脚切 GPIO 开漏, 手动接管总线
+ *   3) 9 个 SCL 脉冲: 把从机移位寄存器时钟走完, SDA 自然释放
+ *   4) 手动 STOP(SDA low→SCL high→SDA high) 回到总线空闲态
+ *   5) 引脚切回 AF + 重新 I2C_Init
+ *   之后的常规读取即"重试": 成功则 ads_note_ok 打印 bus recovered。
+ *---------------------------------------------------------------------------*/
+static void i2c_bus_recover(void)
+{
+    uint8_t i;
+
+    I2C_SoftwareResetCmd(ADS1115_I2C_INSTANCE, ENABLE);
+    Delay_Us(10);
+    I2C_SoftwareResetCmd(ADS1115_I2C_INSTANCE, DISABLE);
+
+    Hal_GPIO_Init(ADS1115_SCL_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
+    Hal_GPIO_Init(ADS1115_SDA_PIN_ENC, HAL_GPIO_MODE_OUTPUT_OD, HAL_GPIO_SPEED_HIGH, 0);
+    Hal_GPIO_Set(ADS1115_SCL_PIN_ENC);       /* SCL 释放 */
+    Hal_GPIO_Set(ADS1115_SDA_PIN_ENC);       /* SDA 释放 */
+    Delay_Us(5);
+
+    for (i = 0; i < 9; i++) {
+        Hal_GPIO_Reset(ADS1115_SCL_PIN_ENC);
+        Delay_Us(5);
+        Hal_GPIO_Set(ADS1115_SCL_PIN_ENC);
+        Delay_Us(5);
+        if (Hal_GPIO_Read(ADS1115_SDA_PIN_ENC)) { break; }   /* SDA 已释放 */
+    }
+
+    /* STOP: SDA low (SCL high) → SDA high */
+    Hal_GPIO_Reset(ADS1115_SDA_PIN_ENC);
+    Delay_Us(5);
+    Hal_GPIO_Set(ADS1115_SCL_PIN_ENC);
+    Delay_Us(5);
+    Hal_GPIO_Set(ADS1115_SDA_PIN_ENC);
+    Delay_Us(5);
+
+    transport_init();        /* 引脚切回 AF_OD + 重新初始化外设 */
+}
+
+/* 总线恢复入口(协议层 ads_note_fail 经顶部前置声明调用) */
+static void transport_recover(void)
+{
+    i2c_bus_recover();
 }
 
 static void transport_init(void)
@@ -302,6 +359,13 @@ uint16_t ADS1115_ReadReg(uint8_t reg)
     I2C_Stop();
 
     return value;
+}
+
+/* 软件传输层恢复: 引脚本就是 GPIO 直控, 无外设状态可卡,
+ * 重新走一遍引脚初始化即回到释放态 */
+static void transport_recover(void)
+{
+    transport_init();
 }
 
 #endif /* ADS1115_I2C_HARDWARE */

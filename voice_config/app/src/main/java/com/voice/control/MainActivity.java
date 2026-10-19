@@ -42,6 +42,10 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         {13, "home_flood_ticks","冲角拍数",       12,  4,    60},
         {14, "click_hold_ms",   "点击保持时长",   30,  5,    200},
         {15, "locate_ms",       "X/Y定位节奏",    25,  5,    100},
+        {16, "pair_debounce",   "双口确认拍数",   2,   1,    10},
+        {17, "blow_debounce",   "吹按确认拍数",   3,   1,    10},
+        {18, "s2_short_ms",     "短吸返回窗口ms", 800, 100,  2000},
+        {19, "cmd_gap_ms",      "异种命令间隔ms", 500, 100,  2000},
     };
 
     private EspLink mLink;

@@ -356,6 +356,7 @@ void Mode_HidMouse(void)
 #endif
 
     int32_t p1 = 0, p2 = 0;     /* 摇杆/波形共用: 未枚举时保持 0 */
+    uint8_t scr_active_prev = 0;    /* scroll ACTIVE 上升沿检测(双口抢占勾销) */
 
     /* TIM2 自由运行: 1计数=100us, 20000计数=2s, 测主循环一圈耗时 */
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
@@ -375,6 +376,7 @@ void Mode_HidMouse(void)
          * 仍必须可用——这正是它们存在的意义) */
         Log_Service(loop_ticks);  /* 日志限频刷 SD(时间基准: 100us 累计, 主循环全速亦准) */
         Cmd_Poll(1);            /* 调试串口命令(save/factory/log) */
+        cmd_arb_tick();         /* 命令仲裁冷却递减(异种命令最小间隔) */
         EspLink_Poll();         /* WiFi 调参: 参数下行解析(只 RX) */
 
         /* 传感器读取 + 波形帧: 独立 50ms 计时, 不依赖 USB 枚举
@@ -384,6 +386,10 @@ void Mode_HidMouse(void)
             sens_last = now_tick;
             p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
             p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
+            /* ADS1115 总线异常时读数返回 0 → 换算出 -500 假饱和 →
+             * 假双吸/假手势(实测钉死时触发假滚动)。读数无效一律视为
+             * 无压力: 手势状态机自然回 IDLE, 波形帧发 0(可见异常) */
+            if (ADS1115_FailStreak()) { p1 = 0; p2 = 0; }
             EspLink_SendWave(p1, p2);
         }
 
@@ -410,7 +416,23 @@ void Mode_HidMouse(void)
              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
              *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
 
-            /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页 */
+            /* 双口滚动（优先于单口手势）: 双吹=上滚 双吸=下滚, 100ms 一格。
+             * 前置运行: 当拍 active 新鲜可用, 供 s1/s2 冻结与抢占勾销 */
+            int8_t wheel = scroll_sm_step(&scr, p1, p2);
+
+            /* 双口手势确认(ACTIVE 上升沿) → 勾销 s1/s2 的一切未决状态:
+             * 双吹误触单吹的兜底——s1 若已抢先按下左键/误入吸计时,
+             * s2 若已误入按住态, 此刻一笔勾销(init 幂等) */
+            if (scr.active && !scr_active_prev) {
+                s1_sm_init(&s1);
+                s2_sm_init(&s2);
+                LOGD("hid", "双口抢占: 勾销 s1/s2 未决状态");
+            }
+            scr_active_prev = scr.active;
+
+            /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页
+             * (滚动期间冻结: 双吸滚动不计短吸窗口, 松口不误发回主页) */
+            s2.freeze = scr.active;
             s2_cmd_t cmd = s2_sm_step(&s2, p2);
             if (cmd == S2_ALTTAB)      kb_sm_press(&kb, 0x04, 0x2B);   /* LAlt+Tab */
             else if (cmd == S2_HOME)   home_sm_start(&hom);
@@ -426,17 +448,17 @@ void Mode_HidMouse(void)
                 USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
             }
 
-            /* 双口滚动（优先于单口手势）: 双吹=上滚 双吸=下滚, 100ms 一格 */
-            int8_t wheel = scroll_sm_step(&scr, p1, p2);
-
             /* 摇杆 → 指针增量 */
             int16_t x_raw = Joystick_GetX();
             int16_t y_raw = Joystick_GetY();
             int32_t x_off = (int32_t)x_raw - x_mid;
             int32_t y_off = (int32_t)y_raw - y_mid;
-
             if (x_off > -g_params.joy_deadzone && x_off < g_params.joy_deadzone) { x_off = 0; }
             if (y_off > -g_params.joy_deadzone && y_off < g_params.joy_deadzone) { y_off = 0; }
+            /* ADS1115 总线异常时读数返回 0 → (0-中值8800) 被当成
+             * "杆压满" → 每帧(+64,-64)持续冲 → 光标钉死右上角(实测)。
+             * 读数无效一律冻结指针, 总线恢复后自动解冻 */
+            if (ADS1115_FailStreak()) { x_off = 0; y_off = 0; }
 
             /* 速度映射: 位移 = offset/step_div(线性区), clamp 限极速。
              * ★ 先在 int32 上钳位再窄化 int8 —— 直接窄化会在

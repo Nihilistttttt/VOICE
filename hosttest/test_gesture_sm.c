@@ -24,7 +24,9 @@ static void test_s1_blow_click_hold(void)
     s1_sm_init(&s1);
     CHECK(s1.state == S1_IDLE && s1.btn == 0);
 
-    /* 去抖: 第 1 tick 不按下, 第 2 tick 按下 */
+    /* 去抖(blow_debounce=3): 前 2 tick 不按下, 第 3 tick 按下
+     * (多出的 1 拍是双口仲裁窗口: 双吹先于单吹确认) */
+    s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x00);
     s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x00);
     s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x01);
 
@@ -42,9 +44,11 @@ static void test_s1_blow_debounce_reset(void)
     s1_sm_t s1; s1_out_t o;
     s1_sm_init(&s1);
     s1_sm_step(&s1, 300, 0, &o);            /* n=1 */
+    s1_sm_step(&s1, 300, 0, &o);            /* n=2 */
     s1_sm_step(&s1, 0, 0, &o);              /* 空闲 → n 清零 */
-    s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x00);   /* 重新计数 */
-    s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x01);   /* 第 2 个连续 tick 按下 */
+    s1_sm_step(&s1, 300, 0, &o);            /* 重新计数 n=1 */
+    s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x00);   /* n=2 未达 3 */
+    s1_sm_step(&s1, 300, 0, &o);  CHECK(o.btn == 0x01);   /* 第 3 个连续 tick 按下 */
 }
 
 static void test_s1_cross_port_guard(void)
@@ -124,7 +128,10 @@ static void test_scroll(void)
     scroll_sm_t sc;
     scroll_sm_init(&sc);
 
-    /* 双吹 = 上滚: 进入拍不输出, 第 2 拍输出 -1 */
+    /* 双吹 = 上滚: 进入去抖(pair_debounce=2) — 第 1 拍不进, 第 2 拍进入
+     * (进入拍不出格), 第 3 拍出格 -1 */
+    CHECK(scroll_sm_step(&sc, 200, 200) == 0);
+    CHECK(sc.active == 0);
     CHECK(scroll_sm_step(&sc, 200, 200) == 0);
     CHECK(sc.active == 1 && sc.dir == -1);
     CHECK(scroll_sm_step(&sc, 200, 200) == -1);
@@ -135,7 +142,8 @@ static void test_scroll(void)
     CHECK(scroll_sm_step(&sc, 50, 50) == 0);
     CHECK(sc.active == 0 && sc.dir == 0);
 
-    /* 双吸 = 下滚 */
+    /* 双吸 = 下滚: 同样 2 拍进入, 第 3 拍出格 */
+    CHECK(scroll_sm_step(&sc, -200, -200) == 0);
     CHECK(scroll_sm_step(&sc, -200, -200) == 0);
     CHECK(sc.dir == 1);
     CHECK(scroll_sm_step(&sc, -200, -200) == 1);
@@ -152,6 +160,16 @@ static void test_scroll(void)
     CHECK(sc.active == 0);
     scroll_sm_step(&sc, -200, 200);
     CHECK(sc.active == 0);
+
+    /* 去抖中断清零: 同向 1 拍 + 中断 + 重新 2 拍才进入 */
+    scroll_sm_init(&sc);
+    scroll_sm_step(&sc, 200, 200);          /* pair_n=1 */
+    CHECK(sc.active == 0);
+    scroll_sm_step(&sc, 200, 50);           /* 同向中断 → pair_n 清零 */
+    scroll_sm_step(&sc, 200, 200);          /* pair_n=1 */
+    CHECK(sc.active == 0);
+    scroll_sm_step(&sc, 200, 200);          /* pair_n=2 → 进入 */
+    CHECK(sc.active == 1);
 }
 
 /*--------------------------------------------------------------------------*/
@@ -168,7 +186,8 @@ static void test_s2(void)
     CHECK(s2_sm_step(&s2, 0) == S2_ALTTAB);
     CHECK(s2.mode == 0);
 
-    /* 短吸 → 回主页 */
+    /* 短吸 → 回主页(距上一命令 AltTab 已隔 ≥0.5s——仲裁冷却已过) */
+    { int i; for (i = 0; i < 10; i++) cmd_arb_tick(); }
     s2_sm_step(&s2, -300);
     s2_sm_step(&s2, -300);
     CHECK(s2.mode == 2);
@@ -186,6 +205,68 @@ static void test_s2(void)
         CHECK(s2_sm_step(&s2, 0) == S2_NONE);
         CHECK(s2.mode == 0);
     }
+}
+
+static void test_s2_sip_window(void)
+{
+    s2_sm_t s2;
+    int i;
+    s2_sm_init(&s2);
+
+    /* 短吸窗口独立参数 s2_short_ms=800: 750ms 松口仍是"短吸"→HOME */
+    s2_sm_step(&s2, -300);
+    s2_sm_step(&s2, -300);                          /* 进入 HOLD_SIP, ms=0 */
+    for (i = 0; i < 15; i++) s2_sm_step(&s2, -300); /* ms=750 */
+    CHECK(s2_sm_step(&s2, 0) == S2_HOME);
+
+    /* 800ms 松口 → 长按静默 */
+    s2_sm_init(&s2);
+    s2_sm_step(&s2, -300);
+    s2_sm_step(&s2, -300);
+    for (i = 0; i < 16; i++) s2_sm_step(&s2, -300); /* ms=800 */
+    CHECK(s2_sm_step(&s2, 0) == S2_NONE);
+}
+
+static void test_s2_freeze(void)
+{
+    s2_sm_t s2;
+    s2_sm_init(&s2);
+
+    /* 冻结(双口滚动期间)不推进: 去抖不累积, 不进入按住态 */
+    s2.freeze = 1;
+    s2_sm_step(&s2, -300);
+    s2_sm_step(&s2, -300);
+    CHECK(s2.mode == 0);
+    CHECK(s2.sip_n == 0);
+
+    /* 解冻后正常去抖进入 */
+    s2.freeze = 0;
+    s2_sm_step(&s2, -300);
+    s2_sm_step(&s2, -300);
+    CHECK(s2.mode == 2);
+}
+
+static void test_pair_preempt_cancel(void)
+{
+    /* 双吹抢占仲裁: "p1 先吹、p2 慢爬"时序下, scroll(pair_debounce=2)
+     * 先于 s1(blow_debounce=3) 确认 → s1 冻结在去抖中, 未按下左键;
+     * 调用方在 ACTIVE 上升沿勾销(init 幂等), 状态干净 */
+    s1_sm_t s1; s1_out_t o;
+    scroll_sm_t sc;
+    s1_sm_init(&s1);
+    scroll_sm_init(&sc);
+
+    s1_sm_step(&s1, 300, 80, &o);   /* s1: c=1 (p2=80 仍在窗内, 慢爬中) */
+    s1_sm_step(&s1, 300, 95, &o);   /* s1: c=2 未达 3, 未按下 */
+    CHECK(o.btn == 0x00);
+
+    scroll_sm_step(&sc, 300, 250);  /* scroll: pair_n=1 */
+    CHECK(scroll_sm_step(&sc, 300, 250) == 0);   /* pair_n=2 → ACTIVE */
+    CHECK(sc.active == 1);
+
+    /* 调用方上升沿勾销(兜底): init 后一切未决状态归零 */
+    s1_sm_init(&s1);
+    CHECK(s1.btn == 0 && s1.blow_n == 0 && s1.state == S1_IDLE);
 }
 
 /*--------------------------------------------------------------------------*/
@@ -286,21 +367,67 @@ static void test_home_abort_and_restart(void)
     CHECK(ho.move == 1);
 }
 
+static void test_cmd_arb_unit(void)
+{
+    cmd_arb_reset();
+    CHECK(cmd_arb_allow(CMD_LEFT) == 1);        /* 首条放行 */
+    { int i; for (i = 0; i < 9; i++) cmd_arb_tick(); }   /* cooldown 10→1 */
+    CHECK(cmd_arb_allow(CMD_MIDDLE) == 0);      /* 异种冷却中 → 拒绝 */
+    cmd_arb_tick();                             /* →0 */
+    CHECK(cmd_arb_allow(CMD_MIDDLE) == 1);      /* 冷却耗尽 → 放行 */
+    CHECK(cmd_arb_allow(CMD_MIDDLE) == 1);      /* 同种不受限 */
+    CHECK(cmd_arb_allow(CMD_SCROLL) == 0);      /* 异种又被挡 */
+    cmd_arb_reset();
+    CHECK(cmd_arb_allow(CMD_SCROLL) == 1);      /* reset 后放行 */
+}
+
+static void test_cmd_gap_integration(void)
+{
+    s1_sm_t s1; s1_out_t o;
+    int i;
+    s1_sm_init(&s1);
+    cmd_arb_reset();
+
+    /* 短吸 → 中键命令(登记 CMD_MIDDLE, 冷却 10 拍) */
+    s1_sm_step(&s1, -300, 0, &o);
+    s1_sm_step(&s1, -300, 0, &o);
+    CHECK(s1.state == S1_SIP_TIMING);
+    s1_sm_step(&s1, 0, 0, &o);
+    CHECK(o.btn == 0x04);
+
+    /* 立即改吹: 冷却内左键确认被拒(blow_n 清零重数), 持续吹到
+     * 第 12 拍(冷却耗尽 + 3 拍确认周期会合)自然通过 */
+    for (i = 1; i <= 11; i++) {
+        cmd_arb_tick();
+        s1_sm_step(&s1, 300, 0, &o);
+        CHECK(o.btn == 0x00);
+    }
+    cmd_arb_tick();
+    s1_sm_step(&s1, 300, 0, &o);
+    CHECK(o.btn == 0x01);
+}
+
 /*--------------------------------------------------------------------------*/
 
 int main(void)
 {
-    test_s1_blow_click_hold();
-    test_s1_blow_debounce_reset();
-    test_s1_cross_port_guard();
-    test_s1_sip_short_middle_click();
-    test_s1_sip_long_volume();
-    test_s1_sip_threshold_hysteresis();
-    test_scroll();
-    test_s2();
-    test_kb();
-    test_home_full_sequence();
-    test_home_abort_and_restart();
+    /* 仲裁器为模块级共享状态: 每个测试前复位(不污染断言语义) */
+    cmd_arb_reset(); test_s1_blow_click_hold();
+    cmd_arb_reset(); test_s1_blow_debounce_reset();
+    cmd_arb_reset(); test_s1_cross_port_guard();
+    cmd_arb_reset(); test_s1_sip_short_middle_click();
+    cmd_arb_reset(); test_s1_sip_long_volume();
+    cmd_arb_reset(); test_s1_sip_threshold_hysteresis();
+    cmd_arb_reset(); test_scroll();
+    cmd_arb_reset(); test_s2();
+    cmd_arb_reset(); test_s2_sip_window();
+    cmd_arb_reset(); test_s2_freeze();
+    cmd_arb_reset(); test_pair_preempt_cancel();
+    cmd_arb_reset(); test_kb();
+    cmd_arb_reset(); test_home_full_sequence();
+    cmd_arb_reset(); test_home_abort_and_restart();
+    cmd_arb_reset(); test_cmd_arb_unit();
+    cmd_arb_reset(); test_cmd_gap_integration();
 
     printf("\n==== gesture_sm host tests: %d passed, %d failed ====\n",
            g_pass, g_fail);
