@@ -35,7 +35,7 @@
 #define LOG_LINE_SIZE       192     /* 单行格式化上限 */
 #define LOG_BUF_SIZE        512     /* SD 行缓冲(FatFs 一个扇区量级) */
 #define LOG_FLUSH_HIGH      448     /* 缓冲高水位: 超过即刷 */
-#define LOG_FLUSH_CALLS     100     /* 刷盘间隔(主循环圈数, ~5s@20Hz) */
+#define LOG_FLUSH_PERIOD    50000   /* 刷盘间隔, 100us 单位 = 5s(时间基准, 不依赖主循环速度) */
 #define LOG_ROTATE_SIZE     65536   /* 日志文件轮转阈值 64KB */
 #define LOG_PATH            "1:/log.txt"      /* 8.3 短名(同上) */
 #define LOG_PATH_OLD        "1:/log.old"
@@ -50,7 +50,7 @@ static uint8_t  s_suspended = 0;            /* MODE=2 挂起标志 */
 static char     s_buf[LOG_BUF_SIZE];        /* 行缓冲(攒批) */
 static uint16_t s_len = 0;                  /* 缓冲内有效字节 */
 static uint32_t s_dropped = 0;              /* 丢弃计数(缓冲满时) */
-static uint32_t s_calls = 0;                /* Service 调用计数(限频用) */
+static uint32_t s_acc = 0;                  /* 经过时间累计, 100us 单位(限频用) */
 static uint32_t s_boot_cnt = 0;             /* 启动序号(BKP 计数) */
 #endif
 
@@ -244,17 +244,18 @@ void Log_FlushNow(void)
 }
 
 /**
- * @brief 日志服务（主循环每圈调用; 限频: ≥LOG_FLUSH_CALLS 圈或高水位才刷）
+ * @brief 日志服务（主循环每圈调用; 限频: 累计 ≥LOG_FLUSH_PERIOD(5s) 或高水位才刷）
  */
-void Log_Service(void)
+void Log_Service(uint32_t elapsed_100us)
 {
 #if LOG_SD_ENABLE
     if (!s_sd_ok || s_suspended) {
         return;
     }
 
-    if (++s_calls >= LOG_FLUSH_CALLS) {
-        s_calls = 0;
+    s_acc += elapsed_100us;
+    if (s_acc >= LOG_FLUSH_PERIOD) {
+        s_acc = 0;
         if (s_len > 0) {
             Log_FlushNow();
         }
@@ -267,6 +268,6 @@ void Log_Service(void)
 void Log_SD_Attach(void)   { }
 void Log_SD_Suspend(void)  { }
 void Log_FlushNow(void)    { }
-void Log_Service(void)     { }
+void Log_Service(uint32_t elapsed_100us) { (void)elapsed_100us; }
 
 #endif /* USE_SDCARD */

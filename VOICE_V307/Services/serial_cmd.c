@@ -40,12 +40,22 @@ static uint8_t s_len = 0;
 static void cmd_dispatch(char *line, uint8_t sd_ok);
 
 /**
- * @brief 初始化（PA10 RX 与 USART1 已由 Debug 层配置, 此处兜底再配一次;
- *        幂等, 重复调用无害）
+ * @brief 初始化（USART1 TX 由 Debug 层配置; RX(PA10) Debug 层并未配置
+ *        —— USART_Printf_Init 仅 USART_Mode_Tx, 必须在此补上, 否则
+ *        RXNE 永不置位, 命令行静默失效。幂等, 重复调用无害）
  */
 void Cmd_Init(void)
 {
-    GPIO_ClockEnable(0);    /* GPIOA —— USART1 RX(PA10) 时钟兜底 */
+    GPIO_InitTypeDef GPIO_InitStructure;
+
+    GPIO_ClockEnable(0);    /* GPIOA —— USART1 RX(PA10) 时钟 */
+
+    /* RX: PA10 浮空输入 + 使能 USART1 接收(Debug 层只配了 TX) */
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    USART1->CTLR1 |= USART_Mode_Rx;
 }
 
 /**
@@ -110,7 +120,8 @@ static void cmd_dispatch(char *line, uint8_t sd_ok)
 void Cmd_Poll(uint8_t sd_ok)
 {
     /* 命令处理期间若有新字节到达, RXNE 置位会保留到下一轮轮询,
-     * 2M 波特率下连续字符靠硬件接收——超 16 字节的行按截断处理 */
+     * 2M 波特率下连续字符靠硬件接收——超长行整行丢弃重来
+     * (不截断: 避免执行残缺命令) */
     while (USART_GetFlagStatus(USART1, USART_FLAG_RXNE) != RESET) {
         char c = (char)USART_ReceiveData(USART1);
 

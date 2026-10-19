@@ -270,6 +270,25 @@ void Mode_UsbhsEnum(void)
  * TEST_MODE 0 —— 正式功能：压差手势 + 手机控制
  *============================================================================*/
 #if TEST_MODE == 0
+/* ---- HID 鼠标报告合成（单一写入点, 固定优先级）----
+ * 优先级: home 序列 > 音量模式(指针冻结, 由调用方置 mx/my=0) > 手势基础。
+ * 全部字段在此一次性写入, 消除"序列代码必须在基础赋值之后"的顺序陷阱。 */
+static void hid_compose_mouse(uint8_t rep[5],
+                              uint8_t base_btn, int8_t mx, int8_t my,
+                              int8_t wheel, uint8_t cons,
+                              const home_out_t *ho)
+{
+    if (ho->move) { mx = ho->dx; my = ho->dy; }         /* home 移动相: 接管 X/Y */
+    if (ho->left_btn == 1)      { base_btn |= 0x01; }   /* home 点击相: 接管左键 */
+    else if (ho->left_btn == 0) { base_btn &= (uint8_t)~0x01; }
+
+    rep[0] = base_btn;
+    rep[1] = (uint8_t)mx;
+    rep[2] = (uint8_t)my;
+    rep[3] = (uint8_t)wheel;
+    rep[4] = cons;
+}
+
 void Mode_HidMouse(void)
 {
 #if USE_JOYSTICK
@@ -349,11 +368,12 @@ void Mode_HidMouse(void)
 
     while (1) {
         uint32_t now_tick = TIM2->CNT;
-        uint32_t loop_ms = ((now_tick - prev_tick + 20000) % 20000) / 10;
+        uint32_t loop_ticks = (now_tick - prev_tick + 20000) % 20000;  /* 100us 单位 */
+        uint32_t loop_ms = loop_ticks / 10;
         prev_tick = now_tick;
         /* 与 USB 枚举状态无关的常驻服务(未接患者手机时 CLI/WiFi 调参
          * 仍必须可用——这正是它们存在的意义) */
-        Log_Service();          /* 日志限频刷 SD */
+        Log_Service(loop_ticks);  /* 日志限频刷 SD(时间基准: 100us 累计, 主循环全速亦准) */
         Cmd_Poll(1);            /* 调试串口命令(save/factory/log) */
         EspLink_Poll();         /* WiFi 调参: 参数下行解析(只 RX) */
 
@@ -420,9 +440,12 @@ void Mode_HidMouse(void)
 
             /* 速度映射: 位移 = offset/step_div(线性区), clamp 限极速。
              * ★ 先在 int32 上钳位再窄化 int8 —— 直接窄化会在
-             *   |offset|/step_div > 127 时回卷为负(指针反向的根因) */
-            int m_x = -y_off / g_params.joy_step_div;
-            int m_y = -x_off / g_params.joy_step_div;
+             *   |offset|/step_div > 127 时回卷为负(指针反向的根因)
+             * 方向对应整体逆时针旋转 90°(用户视角): 摇杆上→光标左,
+             * 右→上, 下→右, 左→下 —— 音量倾斜轴(test_modes.c 音量段)
+             * 须同步旋转, 保持操控语义一致 */
+            int m_x = -x_off / g_params.joy_step_div;
+            int m_y =  y_off / g_params.joy_step_div;
             if (m_x >  g_params.joy_clamp) { m_x =  g_params.joy_clamp; }
             if (m_x < -g_params.joy_clamp) { m_x = -g_params.joy_clamp; }
             if (m_y >  g_params.joy_clamp) { m_y =  g_params.joy_clamp; }
@@ -431,32 +454,31 @@ void Mode_HidMouse(void)
             int8_t my = (int8_t)m_y;
 
 
-            /* s1 单口手势（滚动期间状态冻结不推进, 与原门控一致）*/
+            /* s1 单口手势（滚动期间冻结: 调用方置 freeze, s1 自治不推进, 与原门控一致）*/
+            s1.freeze = scr.active;
             s1_out_t so;
-            if (!scr.active) {
-                s1_sm_step(&s1, p1, p2, &so);
-            } else {
-                so.btn = s1.btn;
-                so.volume_active = (s1.state == S1_SIP_VOLUME);
-            }
+            s1_sm_step(&s1, p1, p2, &so);
 
             /* Consumer 字节: 音量位（吸住音量模式: 指针冻结 + 倾斜=音量）
-             * 注: 与原实现一致, 音量输出不受滚动门控 */
+             * 注: 与原实现一致, 音量输出不受滚动门控
+             * 倾斜轴随方向旋转同步: 上倾=VolUp 下倾=VolDown(旋转前: 右倾=Up) */
             uint8_t cons = 0;
             if (so.volume_active) {
                 mx = 0; my = 0;
-                cons = (y_off < -g_params.vol_tilt) ? 0x01 : (y_off > g_params.vol_tilt) ? 0x02 : 0;
+                cons = (x_off > g_params.vol_tilt) ? 0x01 : (x_off < -g_params.vol_tilt) ? 0x02 : 0;
             }
 
-            mouse_report[0] = so.btn;
-            mouse_report[1] = (uint8_t)mx;
-            mouse_report[2] = (uint8_t)my;
-            mouse_report[3] = (uint8_t)wheel;   /* 0 或 ±1, 滚动机内部已限速 */
-            mouse_report[4] = cons;
+            /* 回主屏序列(CLICKNAV): 产出本拍输出, 默认不接管(ho 由 home_sm_step 覆写) */
+            home_out_t ho = { .move = 0, .dx = 0, .dy = 0, .left_btn = -1 };
+#if HOME_MODE == HOME_MODE_CLICKNAV
+            if (hom.phase != HOME_IDLE) { home_sm_step(&hom, &ho); }
+#endif
 
-            /* 回主屏（s2 短吸触发）—— 按 HOME_MODE 宏选择实现
-             * ★ 序列必须在正常赋值之后: 它最终接管整个报告 */
+            /* HID 报告单一合成点: 手势基础 + home 接管, 固定优先级一次写入 */
+            hid_compose_mouse(mouse_report, so.btn, mx, my, wheel, cons, &ho);
+
 #if HOME_MODE == HOME_MODE_KEYBOARD
+            /* 键盘三连（退役方案保留）: 序列直接改写报告（在合成之后）*/
             if (home_seq) {
                 switch (home_seq) {
                 case 1:   /* Alt+Tab 按下 */
@@ -487,20 +509,6 @@ void Mode_HidMouse(void)
                     KB_Data_Pack[0] = 0; KB_Data_Pack[2] = 0;
                     USBFS_Endp_DataUp(DEF_UEP1, KB_Data_Pack, 8, DEF_UEP_CPY_LOAD);
                     home_seq = 0; break;
-                }
-            }
-#else
-            if (hom.phase != HOME_IDLE) {
-                home_out_t ho;
-                home_sm_step(&hom, &ho);
-                if (ho.move) {                    /* 移动相: 接管 X/Y */
-                    mouse_report[1] = (uint8_t)ho.dx;
-                    mouse_report[2] = (uint8_t)ho.dy;
-                }
-                if (ho.left_btn == 1) {           /* 点击相: 接管左键 */
-                    mouse_report[0] |= 0x01;
-                } else if (ho.left_btn == 0) {
-                    mouse_report[0] &= (uint8_t)~0x01;
                 }
             }
 #endif
@@ -558,8 +566,10 @@ void Mode_HidMouse(void)
 #endif
             }
         }
-        Delay_Us(2000);
     }
+    /* 无循环限速 Delay: 所有周期逻辑均已 TIM2 显式门控
+     * (HID/传感器 50ms, 待机打印 200ms, 诊断 cnt%20), 主循环
+     * 全速跑让命令解析/波形帧消化更及时 */
 #endif /* USE_JOYSTICK */
 }
 #endif

@@ -199,6 +199,7 @@ void s1_sm_init(s1_sm_t *sm)
     sm->rclick_pend = 0;
     sm->p1_tick = 0;
     sm->p2_tick = 0;
+    sm->freeze = 0;
     smf_set_initial(&sm->ctx, &gs1_states[GS1_IDLE]);
 }
 
@@ -218,7 +219,11 @@ void s1_sm_step(s1_sm_t *sm, int32_t p1, int32_t p2, s1_out_t *out)
     sm->p1_tick = p1;   /* 本 tick 输入存槽, 供各 run 共享 */
     sm->p2_tick = p2;
 
-    (void)smf_run_state(&sm->ctx);
+    /* 冻结期间不推进 SMF（滚动期间保持镜像输出）。freeze 由调用方置位,
+     * 状态机自治决定是否推进 —— 替代调用方直读 scr.active 的 if/else。 */
+    if (!sm->freeze) {
+        (void)smf_run_state(&sm->ctx);
+    }
 
     out->btn = sm->btn;
     out->volume_active = (sm->state == S1_SIP_VOLUME);

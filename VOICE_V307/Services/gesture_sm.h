@@ -62,6 +62,7 @@ typedef struct {
     uint8_t  rclick_pend;   /* 中键两相: 0=无 2=按下待发 1=待释放 */
     int32_t  p1_tick;       /* 输入槽: 本 tick s1 口压力（step 写入, run 读取）*/
     int32_t  p2_tick;       /* 输入槽: 本 tick s2 口压力 */
+    uint8_t  freeze;        /* 输入槽: 1=冻结推进（滚动期间由调用方置位, 状态机自治）*/
 } s1_sm_t;
 
 typedef struct {

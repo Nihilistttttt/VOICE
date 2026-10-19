@@ -18,7 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * VOICE 配置 App(横屏) —— 双页面: [参数页] [波形页], 底部 Tab 切换。
- * 波形页完全照搬 EEG WaveformView 可控项: X 时间窗 / Y 量程 / 暂停 / 清屏,
+ * 波形页 EEG 同款: X 时间窗可输入调节(1~120s) / Y 固定±500Pa(每10Pa刻度) / 暂停 / 清屏,
  * 阈值虚线(吹按/吹放/滚动)随参数回执联动。
  * 协议 v2 二进制成帧, TCP server(:41002), ESP IP 零手输。
  */
@@ -51,7 +51,8 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     private WaveView mWaveView;
     private View mPageParams, mPageWave;
     private Button mTabParams, mTabWave;
-    private Button mBtnX, mBtnY, mBtnPause;
+    private EditText mEditX;
+    private Button mBtnPause;
     private final int[] mEdits = new int[PARAMS.length];
     private final Handler mUi = new Handler(Looper.getMainLooper());
     private long mLastLog = 0;
@@ -243,25 +244,30 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         page.setBackgroundColor(0xFF14141E);
         page.setPadding(pad, pad, pad, dp(4));
 
-        /* 控制条: X 窗口 / Y 量程 / 暂停 / 清屏 (照搬 EEG 可控项) */
+        /* 控制条: X 时间窗输入(秒) / 暂停 / 清屏 */
         LinearLayout ctrl = new LinearLayout(this);
         ctrl.setOrientation(LinearLayout.HORIZONTAL);
-        mBtnX = waveBtn(getXLabelOf(mWaveView));
-        mBtnX.setOnClickListener(v -> {
-            if (mWaveView != null) {
-                mWaveView.cycleX();
-                mBtnX.setText(mWaveView.getXLabel());
-            }
+        mEditX = new EditText(this);
+        mEditX.setText("10");
+        mEditX.setHint("1~120");
+        mEditX.setSingleLine();
+        mEditX.setTextSize(12);
+        mEditX.setTextColor(0xFFECEFF1);
+        mEditX.setHintTextColor(0xFF808A9F);
+        mEditX.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.55f);
+        elp.setMargins(dp(4), 0, dp(4), 0);
+        elp.gravity = Gravity.CENTER_VERTICAL;
+        mEditX.setLayoutParams(elp);
+        mEditX.setOnEditorActionListener((v, actionId, event) -> {
+            applyXWindow();
+            return true;
         });
-        ctrl.addView(mBtnX);
-        mBtnY = waveBtn("Y:自动");
-        mBtnY.setOnClickListener(v -> {
-            if (mWaveView != null) {
-                mWaveView.cycleY();
-                mBtnY.setText(mWaveView.getYLabel());
-            }
-        });
-        ctrl.addView(mBtnY);
+        ctrl.addView(mEditX);
+        Button applyX = waveBtn("应用");
+        applyX.setOnClickListener(v -> applyXWindow());
+        ctrl.addView(applyX);
         mBtnPause = waveBtn("暂停");
         mBtnPause.setOnClickListener(v -> {
             if (mWaveView != null) {
@@ -292,18 +298,12 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         mWaveView.setLayoutParams(wlp);
         page.addView(mWaveView);
 
-        /* 同步控制条初值 */
+        /* 阈值线初值 */
         mUi.post(() -> {
-            if (mWaveView != null) {
-                mBtnX.setText(mWaveView.getXLabel());
-                mBtnY.setText(mWaveView.getYLabel());
-                updateThresholds();
-            }
+            if (mWaveView != null) updateThresholds();
         });
         return page;
     }
-
-    private String getXLabelOf(WaveView w) { return w == null ? "X:10s" : w.getXLabel(); }
 
     private Button waveBtn(String text) {
         Button b = new Button(this);
@@ -352,6 +352,20 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
 
     private int dp(int v) {
         return (int) (getResources().getDisplayMetrics().density * v);
+    }
+
+    /** X 时间窗应用: 解析输入并钳位 1~120s, 非法值 toast 提示 */
+    private void applyXWindow() {
+        if (mWaveView == null) return;
+        try {
+            int sec = Integer.parseInt(mEditX.getText().toString().trim());
+            if (sec < 1) sec = 1;
+            if (sec > 120) sec = 120;
+            mEditX.setText(String.valueOf(sec));
+            mWaveView.setXSeconds(sec);
+        } catch (NumberFormatException ex) {
+            toast("X 窗口请输入 1~120 的秒数");
+        }
     }
 
     private void toggleConnect() {

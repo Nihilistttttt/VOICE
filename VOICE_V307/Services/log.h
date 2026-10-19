@@ -106,7 +106,9 @@ void Log_FlushNow(void);
 /**
  * @brief 日志服务（主循环每圈调用一次）: 按限频策略把 RAM 缓冲刷入 SD
  *        MODE=2 期间不调用（SD 已导出）; USE_SDCARD=0 时空操作
+ * @param elapsed_100us 距上次调用经过的时间, 100us 为单位(主循环周期直传,
+ *        内部累计满 5s 才刷盘——不依赖主循环速度, 全速循环亦准)
  */
-void Log_Service(void);
+void Log_Service(uint32_t elapsed_100us);
 
 #endif /* __LOG_H__ */
