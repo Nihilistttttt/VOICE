@@ -66,21 +66,21 @@ void cmd_arb_reset(void)
  *============================================================================*/
 
 /* 状态表索引（与状态枚举解耦, 仅本文件使用）*/
-enum { GS1_IDLE = 0, GS1_TIMING, GS1_VOLUME, GS1_NUM };
+enum { GS1_IDLE = 0, GS1_TIMING, GS1_HOME, GS1_NUM };
 
 /* 前置声明: 状态表需要处理函数指针 */
 static void gs1_idle_entry(void *obj);
 static enum smf_state_result gs1_idle_run(void *obj);
 static void gs1_timing_entry(void *obj);
 static enum smf_state_result gs1_timing_run(void *obj);
-static void gs1_volume_entry(void *obj);
-static enum smf_state_result gs1_volume_run(void *obj);
+static void gs1_home_entry(void *obj);
+static enum smf_state_result gs1_home_run(void *obj);
 
 /* 状态表: ROOT 仅作层次根承载 initial 转移, 无动作 */
 static const struct smf_state gs1_states[GS1_NUM] = {
     [GS1_IDLE]   = SMF_CREATE_STATE(gs1_idle_entry,   gs1_idle_run,   NULL, NULL, NULL),
     [GS1_TIMING] = SMF_CREATE_STATE(gs1_timing_entry, gs1_timing_run, NULL, NULL, NULL),
-    [GS1_VOLUME] = SMF_CREATE_STATE(gs1_volume_entry, gs1_volume_run, NULL, NULL, NULL),
+    [GS1_HOME]   = SMF_CREATE_STATE(gs1_home_entry,   gs1_home_run,   NULL, NULL, NULL),
 };
 
 /**
@@ -181,9 +181,10 @@ static enum smf_state_result gs1_timing_run(void *obj)
     gs1_blow_update(sm, sm->p1_tick, sm->p2_tick);
 
     if (sm->p1_tick >= -g_params.press_off) {
-        /* 松口: 短吸(计时未达长按阈值)=中键点击; 计时归零回 IDLE。
+        /* 松口: 吸住时长 ∈ [s1_back_min_ms, s1_short_ms) = 中键(安卓返回);
+         * 短于最小窗口 = 压力毛刺, 吞掉不响应。
          * 仲裁拒绝 → 本次短吸被吞(距异种命令不足间隔的误判防护) */
-        if (sm->sip_ms < g_params.long_ms) {
+        if (sm->sip_ms >= g_params.s1_back_min_ms) {
             if (cmd_arb_allow(CMD_MIDDLE)) {
                 sm->rclick_pend = 2;    /* 当拍由本 run 尾部的 rclick_update 按下 */
             }
@@ -192,31 +193,34 @@ static enum smf_state_result gs1_timing_run(void *obj)
         smf_set_state(&sm->ctx, &gs1_states[GS1_IDLE]);
     } else {
         sm->sip_ms += GS_TICK_MS;
-        if (sm->sip_ms >= g_params.long_ms) {
-            smf_set_state(&sm->ctx, &gs1_states[GS1_VOLUME]);   /* 吸住 → 音量 */
+        if (sm->sip_ms >= g_params.s1_short_ms && cmd_arb_allow(CMD_HOME)) {
+            smf_set_state(&sm->ctx, &gs1_states[GS1_HOME]);   /* 长吸 → 回主页 */
         }
+        /* 仲裁拒绝时留在 TIMING 继续计, 冷却耗尽后自然通过 */
     }
 
     gs1_rclick_update(sm);
     return SMF_EVENT_HANDLED;
 }
 
-/* VOLUME 入口: 镜像 */
-static void gs1_volume_entry(void *obj)
+/* HOME 入口: 长吸达分界, 触发回主页(事件槽置 1, step 读出) */
+static void gs1_home_entry(void *obj)
 {
     s1_sm_t *sm = (s1_sm_t *)obj;
-    sm->state = S1_SIP_VOLUME;
+    sm->state = S1_SIP_HOME;
+    sm->home_evt = 1;
+    sm->sip_n = 0;
 }
 
-/* VOLUME 运行: 吹气更新 → 松口退出 → 中键两相（原始顺序）*/
-static enum smf_state_result gs1_volume_run(void *obj)
+/* HOME 运行: 吹气更新 → 松口退出; 保持期间无其他输出 */
+static enum smf_state_result gs1_home_run(void *obj)
 {
     s1_sm_t *sm = (s1_sm_t *)obj;
 
     gs1_blow_update(sm, sm->p1_tick, sm->p2_tick);
 
     if (sm->p1_tick >= -g_params.press_off) {
-        sm->sip_n = 0;      /* 松口退出音量, 不发中键（长吸≠返回）*/
+        sm->sip_n = 0;      /* 松口退出回主页保持态 */
         smf_set_state(&sm->ctx, &gs1_states[GS1_IDLE]);
     }
 
@@ -237,6 +241,7 @@ void s1_sm_init(s1_sm_t *sm)
     sm->sip_n = 0;
     sm->sip_ms = 0;
     sm->rclick_pend = 0;
+    sm->home_evt = 0;
     sm->p1_tick = 0;
     sm->p2_tick = 0;
     sm->freeze = 0;
@@ -266,7 +271,8 @@ void s1_sm_step(s1_sm_t *sm, int32_t p1, int32_t p2, s1_out_t *out)
     }
 
     out->btn = sm->btn;
-    out->volume_active = (sm->state == S1_SIP_VOLUME);
+    out->home_trig = sm->home_evt;
+    sm->home_evt = 0;
 }
 
 /*============================================================================
@@ -396,43 +402,53 @@ int8_t scroll_sm_step(scroll_sm_t *sm, int32_t p1, int32_t p2)
 
 /*============================================================================
  * s2 —— 第二口手势
- *   状态: IDLE / HOLD_BLOW / HOLD_SIP。松口时若按住时长 <500ms 发对应
- *   一次性命令（Alt+Tab / 回主页）, 否则静默返回。
+ *   状态: IDLE / HOLD_SIP / VOLUME。
+ *   吹(连续 blow_debounce 拍确认)直接进音量模式; 短吸(<s2_short_ms 松口)
+ *   发 Alt+Tab; 长吸松口无动作。
+ *   吹确认拍数比 scroll 的 pair_debounce 多 1 拍 —— 双吹抢占的仲裁窗口
+ *   (scroll 先 ACTIVE 会勾销/冻结 s2, 错拍 1 拍的双吹不误进音量)。
  *============================================================================*/
 
-enum { GS2_IDLE = 0, GS2_HOLD_BLOW, GS2_HOLD_SIP, GS2_NUM };
+enum { GS2_IDLE = 0, GS2_HOLD_SIP, GS2_VOLUME, GS2_NUM };
 
 static void gs2_idle_entry(void *obj);
 static enum smf_state_result gs2_idle_run(void *obj);
-static void gs2_hold_blow_entry(void *obj);
-static enum smf_state_result gs2_hold_blow_run(void *obj);
 static void gs2_hold_sip_entry(void *obj);
 static enum smf_state_result gs2_hold_sip_run(void *obj);
+static void gs2_volume_entry(void *obj);
+static enum smf_state_result gs2_volume_run(void *obj);
 
 static const struct smf_state gs2_states[GS2_NUM] = {
-    [GS2_IDLE]      = SMF_CREATE_STATE(gs2_idle_entry,      gs2_idle_run,      NULL, NULL, NULL),
-    [GS2_HOLD_BLOW] = SMF_CREATE_STATE(gs2_hold_blow_entry, gs2_hold_blow_run, NULL, NULL, NULL),
-    [GS2_HOLD_SIP]  = SMF_CREATE_STATE(gs2_hold_sip_entry,  gs2_hold_sip_run,  NULL, NULL, NULL),
+    [GS2_IDLE]     = SMF_CREATE_STATE(gs2_idle_entry,     gs2_idle_run,     NULL, NULL, NULL),
+    [GS2_HOLD_SIP] = SMF_CREATE_STATE(gs2_hold_sip_entry, gs2_hold_sip_run, NULL, NULL, NULL),
+    [GS2_VOLUME]   = SMF_CREATE_STATE(gs2_volume_entry,   gs2_volume_run,   NULL, NULL, NULL),
 };
 
-/* IDLE 入口: 镜像归零 */
+/* IDLE 入口: 镜像归零 + 去抖计数兜底清零
+ * (按住态退回时不经窗口拍, 计数残留会让下次 1 拍即确认——去抖失效) */
 static void gs2_idle_entry(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
     sm->mode = 0;
+    sm->vol_active = 0;
+    sm->blow_n = 0;
+    sm->sip_n = 0;
 }
 
-/* IDLE 运行: 双向去抖检测（窗口内计数清零, 达标进入对应按住态）*/
+/* IDLE 运行: 双向去抖检测（切向时对方进度清零——吹/吸切换不经窗口拍,
+ * 计数会跨手势残留, 残留会让下次反向手势 1 拍即确认, 去抖形同虚设）*/
 static enum smf_state_result gs2_idle_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
     if (sm->p2_tick >= g_params.press_on) {
-        if (++sm->blow_n >= g_params.debounce) {
-            sm->blow_n = g_params.debounce;
-            smf_set_state(&sm->ctx, &gs2_states[GS2_HOLD_BLOW]);
+        sm->sip_n = 0;
+        if (++sm->blow_n >= g_params.blow_debounce) {
+            sm->blow_n = g_params.blow_debounce;
+            smf_set_state(&sm->ctx, &gs2_states[GS2_VOLUME]);   /* 吹确认即音量 */
         }
     } else if (sm->p2_tick <= -g_params.press_on) {
+        sm->blow_n = 0;
         if (++sm->sip_n >= g_params.debounce) {
             sm->sip_n = g_params.debounce;
             smf_set_state(&sm->ctx, &gs2_states[GS2_HOLD_SIP]);
@@ -440,30 +456,6 @@ static enum smf_state_result gs2_idle_run(void *obj)
     } else {
         sm->blow_n = 0;
         sm->sip_n = 0;
-    }
-    return SMF_EVENT_HANDLED;
-}
-
-/* 吹按住入口: 计时清零 + 镜像 */
-static void gs2_hold_blow_entry(void *obj)
-{
-    s2_sm_t *sm = (s2_sm_t *)obj;
-    sm->mode = 1;
-    sm->ms = 0;
-}
-
-/* 吹按住运行: 松口→短吹发 Alt+Tab（长按不发）, 否则计时 */
-static enum smf_state_result gs2_hold_blow_run(void *obj)
-{
-    s2_sm_t *sm = (s2_sm_t *)obj;
-
-    if (sm->p2_tick <= g_params.press_off) {
-        if (sm->ms < g_params.long_ms && cmd_arb_allow(CMD_ALTTAB)) {
-            sm->cmd_out = S2_ALTTAB;    /* 短吹松口 → 多任务切换(仲裁可拒) */
-        }
-        smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
-    } else {
-        sm->ms += GS_TICK_MS;
     }
     return SMF_EVENT_HANDLED;
 }
@@ -476,19 +468,37 @@ static void gs2_hold_sip_entry(void *obj)
     sm->ms = 0;
 }
 
-/* 吸按住运行: 松口→短吸(窗口 s2_short_ms, 默认800ms, 独立于吹侧
- * 长按 long_ms——"想返回的吸"稍慢松口仍是返回)发回主页, 长按不发 */
+/* 吸按住运行: 松口→短吸(窗口 s2_short_ms)发 Alt+Tab 多任务, 长吸不发 */
 static enum smf_state_result gs2_hold_sip_run(void *obj)
 {
     s2_sm_t *sm = (s2_sm_t *)obj;
 
     if (sm->p2_tick >= -g_params.press_off) {
-        if (sm->ms < g_params.s2_short_ms && cmd_arb_allow(CMD_HOME)) {
-            sm->cmd_out = S2_HOME;      /* 短吸松口 → 回主页(仲裁可拒) */
+        if (sm->ms < g_params.s2_short_ms && cmd_arb_allow(CMD_ALTTAB)) {
+            sm->cmd_out = S2_ALTTAB;    /* 短吸松口 → 多任务切换(仲裁可拒) */
         }
         smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);
     } else {
         sm->ms += GS_TICK_MS;
+    }
+    return SMF_EVENT_HANDLED;
+}
+
+/* 音量模式入口: 镜像(S2 吹去抖确认即入, 调用方冻结指针并按摇杆对角倾斜算 cons) */
+static void gs2_volume_entry(void *obj)
+{
+    s2_sm_t *sm = (s2_sm_t *)obj;
+    sm->mode = 3;
+    sm->vol_active = 1;
+}
+
+/* 音量模式运行: 松口退出; 保持期间调用方读 vol_active */
+static enum smf_state_result gs2_volume_run(void *obj)
+{
+    s2_sm_t *sm = (s2_sm_t *)obj;
+
+    if (sm->p2_tick <= g_params.press_off) {
+        smf_set_state(&sm->ctx, &gs2_states[GS2_IDLE]);     /* 松口退出音量 */
     }
     return SMF_EVENT_HANDLED;
 }
@@ -504,6 +514,7 @@ void s2_sm_init(s2_sm_t *sm)
     sm->ms = 0;
     sm->blow_n = 0;
     sm->sip_n = 0;
+    sm->vol_active = 0;
     sm->cmd_out = S2_NONE;
     sm->p2_tick = 0;
     sm->freeze = 0;
@@ -514,11 +525,11 @@ void s2_sm_init(s2_sm_t *sm)
  * @brief s2 每 tick 推进一步
  *
  * 冻结期间不推进 SMF（双口滚动期间由调用方置 freeze——双吸滚动时
- * 不计短吸窗口, 防止滚动结束松口误发回主页）。
+ * 不计短吸窗口, 防止滚动结束松口误发多任务切换）。
  *
  * @param sm 状态机
  * @param p2 s2 口压力 Pa
- * @return 一次性命令（NONE/ALTTAB/HOME）, 每命令仅返回一拍
+ * @return 一次性命令（NONE/ALTTAB）, 每命令仅返回一拍
  */
 s2_cmd_t s2_sm_step(s2_sm_t *sm, int32_t p2)
 {

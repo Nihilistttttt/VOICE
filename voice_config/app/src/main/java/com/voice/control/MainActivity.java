@@ -1,11 +1,15 @@
 package com.voice.control;
 
+import android.content.pm.ActivityInfo;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -17,35 +21,61 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 /**
- * VOICE 配置 App(横屏) —— 双页面: [参数页] [波形页], 底部 Tab 切换。
+ * VOICE 配置 App —— 双页面: [参数页(竖屏)] [波形页(横屏)], 底部 Tab 切换。
+ * 方向随页面动态切换(configChanges 声明 → 旋转不重建, TCP 连接不断)。
  * 波形页 EEG 同款: X 时间窗可输入调节(1~120s) / Y 固定±500Pa(每10Pa刻度) / 暂停 / 清屏,
  * 阈值虚线(吹按/吹放/滚动)随参数回执联动。
  * 协议 v2 二进制成帧, TCP server(:41002), ESP IP 零手输。
  */
 public class MainActivity extends AppCompatActivity implements EspLink.Listener {
 
-    /** 参数表(与 Services/params.c 描述符表一致): {id, key, 标签, 默认, min, max} */
+    /** 参数表(与 Services/params.c 描述符表一致):
+     *  {id, key, 标签, 默认, min, max, 分组, 单位, 说明} */
     private static final Object[][] PARAMS = {
-        {0, "joy_deadzone",     "摇杆死区",       500, 0,    4000},
-        {1, "joy_step_div",     "摇杆灵敏度",     128, 16,   1024},
-        {2, "joy_clamp",        "单帧最大位移",   64,  8,    127},
-        {3, "press_on",         "吹气按下阈值",   250, 50,   480},
-        {4, "press_off",        "吹气释放阈值",   150, 20,   400},
-        {5, "idle_win",         "跨口空闲窗口",   100, 20,   400},
-        {6, "scroll_on",        "滚动进入阈值",   150, 50,   480},
-        {7, "scroll_off",       "滚动退出阈值",   100, 20,   400},
-        {8, "long_ms",          "长按判定",       500, 100,  5000},
-        {9, "vol_tilt",         "音量倾斜阈值",   600, 100,  8000},
-        {10, "debounce",        "按下去抖拍数",   2,   1,    10},
-        {11, "home_x_center",   "回主页X定位",    540, 100,  4000},
-        {12, "home_y_offset",   "主页键Y偏移",    24,  0,    200},
-        {13, "home_flood_ticks","冲角拍数",       12,  4,    60},
-        {14, "click_hold_ms",   "点击保持时长",   30,  5,    200},
-        {15, "locate_ms",       "X/Y定位节奏",    25,  5,    100},
-        {16, "pair_debounce",   "双口确认拍数",   2,   1,    10},
-        {17, "blow_debounce",   "吹按确认拍数",   3,   1,    10},
-        {18, "s2_short_ms",     "短吸返回窗口ms", 800, 100,  2000},
-        {19, "cmd_gap_ms",      "异种命令间隔ms", 500, 100,  2000},
+        {0, "joy_deadzone",     "摇杆死区",          500, 0,    4000, "摇杆控制", "%",
+                "杆偏移低于此比例视为未推动, 防手抖漂移"},
+        {1, "joy_step_div",     "摇杆灵敏度",        128, 16,   1024, "摇杆控制", "倍",
+                "倍率越大光标跟手越快"},
+        {2, "joy_clamp",        "单帧最大位移",      64,  8,    127,  "摇杆控制", "px/帧",
+                "光标单帧限速, 防瞬移跳跃"},
+        {3, "press_on",         "吹气按下阈值",      250, 50,   480,  "压差手势", "Pa",
+                "s1口吹到该压力→按下左键(点击/拖拽起点)"},
+        {4, "press_off",        "吹气释放阈值",      150, 20,   400,  "压差手势", "Pa",
+                "吹住时回落到该值→松开左键(须低于按下阈值)"},
+        {5, "idle_win",         "跨口空闲窗口",      100, 20,   400,  "压差手势", "Pa",
+                "另一口压力须在此窗口内才判单口手势——两口同忙不判, 防双吹误触单吹"},
+        {6, "scroll_on",        "滚动进入阈值",      150, 50,   480,  "压差手势", "Pa",
+                "两口同时吹/吸到此值→进入双口滚动(吹=上滚 吸=下滚)"},
+        {7, "scroll_off",       "滚动退出阈值",      100, 20,   400,  "压差手势", "Pa",
+                "滚动中压力回落到此值以下→退出滚动"},
+        {9, "vol_tilt",         "音量倾斜阈值",      600, 100,  8000, "压差手势", "ADC计数",
+                "音量模式: 摇杆上/右/右上侧倾斜合计超此值→调大音量, 下/左/左下侧→调小(135°对角线划分)"},
+        {10, "debounce",        "按下去抖拍数",      2,   1,    10,   "压差手势", "拍(50ms)",
+                "吸气类确认去抖: 连续N拍才触发(防压力毛刺)"},
+        {11, "home_x_center",   "回主页X定位",       540, 100,  4000, "回主页序列", "px",
+                "回主页序列的目标横坐标(按屏幕宽度标定)"},
+        {12, "home_y_offset",   "主页键Y偏移",       24,  0,    200,  "回主页序列", "px",
+                "冲角后从屏幕顶端下移到主页键的Y计数"},
+        {13, "home_flood_ticks","冲角拍数",          12,  4,    60,   "回主页序列", "拍",
+                "回主页先把光标冲向屏幕角落的步数(利用系统指针加速快速到边)"},
+        {14, "click_hold_ms",   "点击保持时长",      30,  5,    200,  "回主页序列", "ms",
+                "模拟点击的按住时长, 太短系统不识别"},
+        {15, "locate_ms",       "X/Y定位节奏",       25,  5,    100,  "回主页序列", "ms",
+                "回主页每步移动间隔, 太小会被安卓指针加速放大"},
+        {16, "pair_debounce",   "双口确认拍数",      2,   1,    10,   "双口仲裁·防误触", "拍(50ms)",
+                "两口同向持续N拍才进滚动——双吹误触单吹的第一道防线"},
+        {17, "blow_debounce",   "吹按确认拍数",      3,   1,    10,   "双口仲裁·防误触", "拍(50ms)",
+                "吹气持续N拍才确认(s1左键按下/s2进音量, 让出双吹仲裁窗口)"},
+        {18, "s2_short_ms",     "多任务窗口",        800, 100,  2000, "双口仲裁·防误触", "ms",
+                "S2短吸松口在此窗口内→Alt+Tab多任务; 吸更久松口→无动作(防误触)"},
+        {19, "cmd_gap_ms",      "异种命令间隔",      500, 100,  2000, "双口仲裁·防误触", "ms",
+                "两种不同命令间的最小间隔(连续同类不受限), 被吞的持续意图会在间隔后自动通过"},
+        {20, "s1_short_ms",     "长吸回主页时长",    800, 100,  2000, "压差手势", "ms",
+                "S1吸住此时长→回主页; 短于此松口=中键返回"},
+        {21, "s1_back_min_ms",  "返回最小吸时",      50,  0,    500,  "压差手势", "ms",
+                "吸住至少此时长松口才算中键返回, 更短视为压力毛刺吞掉"},
+        {22, "vol_rate_ms",     "音量调节间隔",      50,  20,   1000, "压差手势", "ms",
+                "音量模式下音量命令的发送间隔, 越小调得越快(默认50ms)"},
     };
 
     private EspLink mLink;
@@ -72,6 +102,10 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         }
         setContentView(buildUi());
         showPage(false);
+        /* 自动连接(对齐 EEG 医生端): 启动即监听 41002, 无需手动按钮;
+         * 断线后 EspLink.acceptLoop 持续嗅探, ESP 重连即恢复 */
+        mLink = new EspLink(this);
+        mLink.start();
     }
 
     /* ================= 页面框架 ================= */
@@ -120,6 +154,10 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         mPageParams.setVisibility(wave ? View.GONE : View.VISIBLE);
         mTabWave.setTextColor(wave ? 0xFFFFFFFF : 0xFFB0BEC5);
         mTabParams.setTextColor(wave ? 0xFFB0BEC5 : 0xFFFFFFFF);
+        /* 参数页竖屏(列表滚动), 波形页横屏(EEG 同款宽幅) */
+        setRequestedOrientation(wave
+                ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
     /* ================= 参数页 ================= */
@@ -130,24 +168,42 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         left.setPadding(pad, pad, pad, dp(4));
 
         mConnState = new TextView(this);
-        mConnState.setText("未连接 —— 点击连接, 监听 41002");
+        mConnState.setText("嗅探中 · 等待 ESP 连入 41002...");
         mConnState.setTextSize(13);
         mConnState.setTypeface(null, Typeface.BOLD);
         mConnState.setPadding(dp(6), 0, 0, dp(6));
         left.addView(mConnState);
 
-        Button connBtn = new Button(this);
-        connBtn.setText("连接(监听ESP:41002)");
-        connBtn.setTextSize(13);
-        connBtn.setBackgroundResource(R.drawable.bg_btn_primary);
-        connBtn.setTextColor(0xFFFFFFFF);
-        connBtn.setOnClickListener(v -> toggleConnect());
-        left.addView(connBtn);
-
         LinearLayout rows = new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
+        /* 按分组生成卡片: 同组参数进同一张白底圆角卡片, 组间 10dp 间距,
+         * 组内行间细分隔线 —— 分类差异一眼可辨 */
+        LinearLayout card = null;
+        String curGroup = "";
+        boolean firstInCard = true;
         for (int i = 0; i < PARAMS.length; i++) {
-            rows.addView(buildParamRow(i));
+            String group = (String) PARAMS[i][6];
+            if (card == null || !group.equals(curGroup)) {
+                curGroup = group;
+                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                clp.setMargins(dp(2), 0, dp(2), dp(10));
+                card = buildGroupCard(group, clp);
+                rows.addView(card);
+                firstInCard = true;
+            }
+            if (!firstInCard) {
+                View div = new View(this);
+                div.setBackgroundColor(0xFFF0F1F5);
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+                dlp.setMargins(dp(6), 0, dp(6), 0);
+                div.setLayoutParams(dlp);
+                card.addView(div);
+            }
+            firstInCard = false;
+            card.addView(buildParamRow(i));
         }
         ScrollView sc = new ScrollView(this);
         sc.setLayoutParams(new LinearLayout.LayoutParams(
@@ -160,26 +216,59 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         cmdRow.setPadding(0, dp(4), 0, 0);
         Button save = smallBtn("保存到SD");
         save.setOnClickListener(v -> {
-            if (mLink != null && mLink.isRunning()) mLink.sendCmdAsync(0);
-            else toast("未连接");
+            if (mLink != null && mLink.isClientConnected()) mLink.sendCmdAsync(0);
+            else toast("ESP 未连入");
         });
         cmdRow.addView(save);
         Button factory = smallBtn("恢复出厂");
         factory.setOnClickListener(v -> {
-            if (mLink != null && mLink.isRunning()) mLink.sendCmdAsync(1);
-            else toast("未连接");
+            if (mLink != null && mLink.isClientConnected()) mLink.sendCmdAsync(1);
+            else toast("ESP 未连入");
         });
         cmdRow.addView(factory);
         left.addView(cmdRow);
         return left;
     }
 
-    /** 参数行: 标签 | 值 | 发 | 默 */
+    /** 分组卡片: 白底圆角 + 左色条 + 组名标题 */
+    private LinearLayout buildGroupCard(String title, LinearLayout.LayoutParams lp) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFFFFFFFF);
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), 0xFFE2E6ED);
+        card.setBackground(bg);
+        card.setPadding(dp(8), dp(8), dp(8), dp(4));
+        card.setLayoutParams(lp);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        View bar = new View(this);
+        bar.setBackgroundColor(0xFF3D5AFE);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(4), dp(14));
+        blp.setMargins(dp(6), 0, dp(8), 0);
+        bar.setLayoutParams(blp);
+        head.addView(bar);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(13);
+        t.setTypeface(null, Typeface.BOLD);
+        t.setTextColor(0xFF3949AB);
+        head.addView(t);
+        card.addView(head);
+        return card;
+    }
+
+    /** 参数行: 标签(含单位) | 值 | 发 | 默
+     *  显示换算: id=1 灵敏度显示倍率, id=0 死区显示杆量百分比, 其余原值 */
     private View buildParamRow(int i) {
         int id = (Integer) PARAMS[i][0];
         boolean isSens = (id == 1);
-        String label = isSens ? "灵敏度(倍率,越大越快)"
-                              : (String) PARAMS[i][2];
+        boolean isDead = (id == 0);
+        /* 单位并入标签: "吹气按下阈值 (Pa)" —— 不占额外列, 布局不变 */
+        String label = PARAMS[i][2] + " (" + PARAMS[i][7] + ")";
         int def = (Integer) PARAMS[i][3];
         int min = (Integer) PARAMS[i][4];
         int max = (Integer) PARAMS[i][5];
@@ -189,15 +278,27 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(6), dp(3), dp(6), dp(3));
 
+        /* 名称区: 主标签(含单位) + 灰色小字说明 —— 一眼可懂 */
+        LinearLayout nameBox = new LinearLayout(this);
+        nameBox.setOrientation(LinearLayout.VERTICAL);
+        nameBox.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.35f));
+
         TextView name = new TextView(this);
         name.setText(label);
         name.setTextSize(12);
-        name.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.35f));
-        row.addView(name);
+        nameBox.addView(name);
+
+        TextView desc = new TextView(this);
+        desc.setText((String) PARAMS[i][8]);
+        desc.setTextSize(10);
+        desc.setTextColor(0xFF8A919E);
+        nameBox.addView(desc);
+        row.addView(nameBox);
 
         EditText val = new EditText(this);
-        val.setText(isSens ? stepDivToSens(def) : String.valueOf(def));
+        val.setText(isSens ? stepDivToSens(def)
+                : isDead ? deadToPct(def) : String.valueOf(def));
         val.setSingleLine();
         val.setTextSize(12);
         val.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
@@ -205,27 +306,42 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         val.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.75f));
         val.setId(View.generateViewId());
+        /* 键盘"完成"键收起软键盘——防焦点滞留的输入框与回执刷新打架 */
+        val.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        val.setOnEditorActionListener((v, actionId, ev) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                v.clearFocus();
+                hideKb(v);
+                return true;
+            }
+            return false;
+        });
         mEdits[i] = val.getId();
         row.addView(val);
 
         Button send = smallBtn("发");
         send.setOnClickListener(v -> {
+            val.clearFocus();          /* 发送即收键盘, 防焦点错乱 */
+            hideKb(val);
             try {
                 int value;
                 if (isSens) {
                     double s = Double.parseDouble(val.getText().toString());
                     value = sensToStepDiv(s);
+                } else if (isDead) {
+                    double p = Double.parseDouble(val.getText().toString());
+                    value = pctToDead(p);
                 } else {
                     value = Integer.parseInt(val.getText().toString());
                 }
                 if (value < min) value = min;
                 if (value > max) value = max;
                 val.setText(isSens ? stepDivToSens(value)
-                                   : String.valueOf(value));
-                if (mLink != null && mLink.isRunning()) {
+                        : isDead ? deadToPct(value) : String.valueOf(value));
+                if (mLink != null && mLink.isClientConnected()) {
                     mLink.sendParamAsync(id, value);
                 } else {
-                    toast("未连接");
+                    toast("ESP 未连入");
                 }
             } catch (NumberFormatException ex) {
                 toast("数值非法");
@@ -235,7 +351,8 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
 
         Button defBtn = smallBtn("默");
         defBtn.setOnClickListener(v -> val.setText(
-                isSens ? stepDivToSens(def) : String.valueOf(def)));
+                isSens ? stepDivToSens(def)
+                : isDead ? deadToPct(def) : String.valueOf(def)));
         row.addView(defBtn);
         return row;
     }
@@ -340,8 +457,15 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         b.setText(text);
         b.setTextSize(12);
         b.setMinHeight(0);
+        b.setMinWidth(dp(40));    /* 竖屏窄幅下防止默认 minWidth 挤爆行 */
         b.setPadding(dp(10), dp(4), dp(10), dp(4));
         return b;
+    }
+
+    private void hideKb(View v) {
+        InputMethodManager imm =
+                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
     }
 
     /* ---- 灵敏度语义翻转: App 显示倍率(越大越快), 固件存 step_div(除数) ---- */
@@ -352,6 +476,19 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     private int sensToStepDiv(double sens) {
         double sd = 128.0 / Math.max(0.125, sens);
         return (int) Math.round(sd);
+    }
+
+    /* ---- 摇杆死区: App 显示杆量百分比, 固件存 ADC 计数 ----
+     * 基准 8800 counts = 摇杆中值(3.3V 分压半量程 ≈1.65V)到边缘的满偏偏移
+     * (ADS1115 ±6.144V/16bit, 中值运行时校准 ≈8800) */
+    private static final int JOY_HALF_ADC = 8800;
+
+    private String deadToPct(int adc) {
+        return String.format(java.util.Locale.US, "%.1f", adc * 100.0 / JOY_HALF_ADC);
+    }
+
+    private int pctToDead(double pct) {
+        return (int) Math.round(pct * JOY_HALF_ADC / 100.0);
     }
 
     private int dp(int v) {
@@ -372,18 +509,6 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         }
     }
 
-    private void toggleConnect() {
-        if (mLink != null && mLink.isRunning()) {
-            mLink.stop();
-            mLink = null;
-            mConnState.setText("未连接 —— 点击连接, 监听 41002");
-        } else {
-            mLink = new EspLink(this);
-            if (mLink.start()) {
-                mConnState.setText("监听中(等待 ESP 连入 41002)...");
-            }
-        }
-    }
 
     private void toast(String s) {
         Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
@@ -413,12 +538,15 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     /* ---- EspLink.Listener ---- */
     @Override
     public void onClientConnected(String ip) {
-        mUi.post(() -> mConnState.setText("ESP 已连入: " + ip + " (协议 v2)"));
+        mUi.post(() -> mConnState.setText("已连接 · ESP " + ip + " (协议 v2)"));
+        /* 连入即拉取全量参数: 固件回推 PARAM_ECHO 逐条刷新显示
+         * (含 SD 存储值; 断线重连会再次触发, 始终与固件一致) */
+        if (mLink != null) mLink.sendCmdAsync(2);
     }
 
     @Override
     public void onClientDisconnected() {
-        mUi.post(() -> mConnState.setText("ESP 断开, 等待重连..."));
+        mUi.post(() -> mConnState.setText("已断开 · 嗅探中, 等待 ESP 重连 41002..."));
     }
 
     @Override
@@ -440,10 +568,14 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
             for (int i = 0; i < PARAMS.length; i++) {
                 if ((Integer) PARAMS[i][0] == id) {
                     boolean isSens = (id == 1);
+                    boolean isDead = (id == 0);
                     EditText v = findViewById(mEdits[i]);
-                    if (v != null) {
+                    /* 正在编辑的框不被回执覆盖——否则键盘弹起时 setText
+                     * 重置文本, 部分机型表现为"失焦无法修改" */
+                    if (v != null && !v.hasFocus()) {
                         String txt = isSens ? stepDivToSens(value)
-                                            : String.valueOf(value);
+                                : isDead ? deadToPct(value)
+                                : String.valueOf(value);
                         v.setText(txt);
                     }
                     appendLog("回执: " + PARAMS[i][1] + " = " + value);

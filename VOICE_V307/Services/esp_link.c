@@ -100,6 +100,22 @@ static void esp_send_frame(uint8_t type, const uint8_t *pay, uint8_t len)
 }
 
 /**
+ * @brief 全量参数推送: 遍历描述符表逐条发 PARAM_ECHO
+ *        (App 连入后主动拉取 / 恢复出厂后同步 —— 确保 App 显示与
+ *         固件 SD 存储一致, 不靠 App 侧猜默认值)
+ */
+static void esp_push_all_params(void)
+{
+    for (uint8_t id = 0; id < PARAM_ID_NUM; id++) {
+        const char *name = 0;
+        int32_t v = Params_GetByIndex(id, &name);
+        if (name == 0) { continue; }    /* 废弃空槽(如 id 8)不推 */
+        uint8_t echo[3] = { id, (uint8_t)((uint32_t)v >> 8), (uint8_t)v };
+        esp_send_frame(TYPE_PARAM_ECHO, echo, 3);
+    }
+}
+
+/**
  * @brief 完整帧处理(CRC 已通过)
  */
 static void esp_process_frame(uint8_t type, const uint8_t *pay, uint8_t len)
@@ -126,6 +142,10 @@ static void esp_process_frame(uint8_t type, const uint8_t *pay, uint8_t len)
         } else if (pay[0] == 1) {
             (void)Params_SD_FactoryReset();
             LOGI("esp", "已恢复出厂默认值");
+            esp_push_all_params();          /* 出厂值同步推送 */
+        } else if (pay[0] == 2) {
+            LOGI("esp", "App 请求全量参数");
+            esp_push_all_params();          /* App 连入/重连后拉取 */
         } else {
             LOGW("esp", "未知 CMD 子命令 %u", pay[0]);
         }

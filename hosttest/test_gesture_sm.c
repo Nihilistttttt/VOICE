@@ -2,8 +2,9 @@
  * 手势状态机宿主单测（Common/gesture_sm.c 纯逻辑）
  *
  * 恢复自丢失的 hosttest（Sense/gesture.c 73 断言在目录重构中遗失）。
- * 覆盖: s1 吹/吸迟滞与去抖、中键两相、音量模式、双口滚动进出与限速、
- *       s2 短吹/短吸/长按、键盘两相、回主页全序列与断连中止（F3）。
+ * 覆盖: s1 吹/吸迟滞与去抖、中键两相、长吸回主页、短吸窗口边界、
+ *       双口滚动进出与限速、s2 吹即音量/短吸多任务/长吸静默、
+ *       键盘两相、回主页全序列与断连中止（F3）、命令仲裁。
  * 跑法: bash hosttest/run.sh
  *============================================================================*/
 #include <stdio.h>
@@ -71,13 +72,15 @@ static void test_s1_sip_short_middle_click(void)
     s1_sm_step(&s1, -300, 0, &o);  CHECK(o.btn == 0x00);   /* 进入 TIMING */
     CHECK(s1.state == S1_SIP_TIMING);
 
-    /* 快速松口 → 短吸 = 中键两相点击 */
+    s1_sm_step(&s1, -300, 0, &o);  CHECK(o.btn == 0x00);   /* ms=50 达最小窗口 */
+
+    /* 松口(吸住≥s1_back_min_ms) → 短吸 = 中键两相点击 */
     s1_sm_step(&s1, 0, 0, &o);     CHECK(o.btn == 0x04);   /* 按下相 */
     s1_sm_step(&s1, 0, 0, &o);     CHECK(o.btn == 0x00);   /* 释放相 */
     CHECK(s1.state == S1_IDLE);
 }
 
-static void test_s1_sip_long_volume(void)
+static void test_s1_sip_long_home(void)
 {
     s1_sm_t s1; s1_out_t o;
     int i;
@@ -85,19 +88,59 @@ static void test_s1_sip_long_volume(void)
     s1_sm_step(&s1, -300, 0, &o);
     s1_sm_step(&s1, -300, 0, &o);          /* 进入 TIMING, ms=0 */
 
-    for (i = 0; i < 9; i++) s1_sm_step(&s1, -300, 0, &o);   /* ms=450 */
+    for (i = 0; i < 15; i++) s1_sm_step(&s1, -300, 0, &o);   /* ms=750 */
     CHECK(s1.state == S1_SIP_TIMING);
-    CHECK(o.btn == 0x00);                  /* 按住期间无中键 */
+    CHECK(o.btn == 0x00 && o.home_trig == 0);   /* 按住期间无任何输出 */
 
-    s1_sm_step(&s1, -300, 0, &o);          /* ms=500 → 音量模式 */
-    CHECK(s1.state == S1_SIP_VOLUME);
-    CHECK(o.volume_active == 1);
+    s1_sm_step(&s1, -300, 0, &o);          /* ms=800 → 回主页(s1_short_ms) */
+    CHECK(s1.state == S1_SIP_HOME);
+    CHECK(o.home_trig == 1);               /* 达分界当拍触发一次 */
     CHECK(o.btn == 0x00);
 
-    /* 音量模式松口 → 退出, 且不发中键点击（长吸≠返回）*/
+    s1_sm_step(&s1, -300, 0, &o);          /* 继续吸住: 不重复触发 */
+    CHECK(s1.state == S1_SIP_HOME);
+    CHECK(o.home_trig == 0);
+
+    /* 回主页保持态松口 → 退出, 且不发中键（长吸≠返回）*/
     s1_sm_step(&s1, 0, 0, &o);
     CHECK(s1.state == S1_IDLE);
-    CHECK(o.volume_active == 0);
+    CHECK(o.home_trig == 0);
+    CHECK(o.btn == 0x00);
+}
+
+static void test_s1_sip_window_boundary(void)
+{
+    /* 短吸窗口 [s1_back_min_ms=50, s1_short_ms=800) 三段边界验证:
+     * <50ms 松口=压力毛刺吞掉; 750ms 松口=中键返回; 吸够 800ms=回主页 */
+    s1_sm_t s1; s1_out_t o;
+    int i;
+
+    /* 毛刺: 进 TIMING 后立刻松口(ms=0 < 50) → 吞 */
+    s1_sm_init(&s1);
+    s1_sm_step(&s1, -300, 0, &o);
+    s1_sm_step(&s1, -300, 0, &o);          /* TIMING, ms=0 */
+    s1_sm_step(&s1, 0, 0, &o);
+    CHECK(o.btn == 0x00);                  /* 无中键 */
+    CHECK(s1.state == S1_IDLE);
+
+    /* 750ms 松口 → 中键(窗口内) */
+    s1_sm_init(&s1);
+    s1_sm_step(&s1, -300, 0, &o);
+    s1_sm_step(&s1, -300, 0, &o);          /* TIMING, ms=0 */
+    for (i = 0; i < 15; i++) s1_sm_step(&s1, -300, 0, &o);   /* ms=750 */
+    CHECK(s1.state == S1_SIP_TIMING);
+    s1_sm_step(&s1, 0, 0, &o);             /* 750ms 松口 → 中键 */
+    CHECK(o.btn == 0x04);
+    CHECK(s1.state == S1_IDLE);
+
+    /* 800ms 吸够 → 回主页(上一段中键已登记仲裁, 先耗尽冷却) */
+    { int t; for (t = 0; t < 10; t++) cmd_arb_tick(); }
+    s1_sm_init(&s1);
+    s1_sm_step(&s1, -300, 0, &o);
+    s1_sm_step(&s1, -300, 0, &o);
+    for (i = 0; i < 16; i++) s1_sm_step(&s1, -300, 0, &o);   /* ms=800 */
+    CHECK(s1.state == S1_SIP_HOME);
+    CHECK(o.home_trig == 1);
     CHECK(o.btn == 0x00);
 }
 
@@ -179,29 +222,47 @@ static void test_s2(void)
     s2_sm_t s2;
     s2_sm_init(&s2);
 
-    /* 短吹 → Alt+Tab */
+    /* 吹 3 拍(blow_debounce)确认 → 即进音量模式; 松口退出 */
     s2_sm_step(&s2, 300);
-    CHECK(s2_sm_step(&s2, 300) == S2_NONE);
-    CHECK(s2.mode == 1);
+    CHECK(s2.mode == 0);                       /* 去抖 1 未确认 */
+    s2_sm_step(&s2, 300);
+    CHECK(s2.mode == 0);                       /* 去抖 2 未确认 */
+    CHECK(s2_sm_step(&s2, 300) == S2_NONE);    /* 第 3 拍确认 → 音量 */
+    CHECK(s2.mode == 3 && s2.vol_active == 1);
+    CHECK(s2_sm_step(&s2, 300) == S2_NONE);    /* 保持中仍音量 */
+    CHECK(s2.vol_active == 1);
+    CHECK(s2_sm_step(&s2, 0) == S2_NONE);      /* 松口退出 */
+    CHECK(s2.mode == 0 && s2.vol_active == 0);
+
+    /* 音量退出后立即再吹: 计数已被 IDLE entry 清零, 仍须 3 拍确认
+     * (残留会让 1 拍即进——去抖失效) */
+    s2_sm_step(&s2, 300);
+    CHECK(s2.mode == 0);                       /* 第 1 拍不进 */
+    s2_sm_step(&s2, 300);
+    s2_sm_step(&s2, 300);                      /* 第 3 拍重新进音量 */
+    CHECK(s2.mode == 3 && s2.vol_active == 1);
+    s2_sm_step(&s2, 0);                        /* 退出, 后续用 */
+
+    /* 未确认的短吹(<3 拍)松口 → 无任何动作 */
+    s2_sm_step(&s2, 300);
+    s2_sm_step(&s2, 300);
+    CHECK(s2_sm_step(&s2, 0) == S2_NONE);
+    CHECK(s2.mode == 0 && s2.vol_active == 0);
+
+    /* 短吸 → Alt+Tab 多任务 */
+    s2_sm_step(&s2, -300);
+    CHECK(s2_sm_step(&s2, -300) == S2_NONE);   /* mode=2 吸按住 */
+    CHECK(s2.mode == 2);
     CHECK(s2_sm_step(&s2, 0) == S2_ALTTAB);
     CHECK(s2.mode == 0);
 
-    /* 短吸 → 回主页(距上一命令 AltTab 已隔 ≥0.5s——仲裁冷却已过) */
-    { int i; for (i = 0; i < 10; i++) cmd_arb_tick(); }
-    s2_sm_step(&s2, -300);
-    s2_sm_step(&s2, -300);
-    CHECK(s2.mode == 2);
-    CHECK(s2_sm_step(&s2, 0) == S2_HOME);
-    CHECK(s2.mode == 0);
-
-    /* 长按 ≥500ms → 松口无动作 */
-    s2_sm_init(&s2);
+    /* 长吸 ≥800ms(s2_short_ms) → 松口静默(多任务窗口外) */
     {
         int i;
-        s2_sm_step(&s2, 300);
-        s2_sm_step(&s2, 300);                       /* mode=1, ms=0 */
-        for (i = 0; i < 11; i++) s2_sm_step(&s2, 300);   /* ms=550 */
-        CHECK(s2.mode == 1);
+        s2_sm_step(&s2, -300);
+        s2_sm_step(&s2, -300);                       /* mode=2, ms=0 */
+        for (i = 0; i < 16; i++) s2_sm_step(&s2, -300);  /* ms=800 */
+        CHECK(s2.mode == 2);
         CHECK(s2_sm_step(&s2, 0) == S2_NONE);
         CHECK(s2.mode == 0);
     }
@@ -213,13 +274,14 @@ static void test_s2_sip_window(void)
     int i;
     s2_sm_init(&s2);
 
-    /* 短吸窗口独立参数 s2_short_ms=800: 750ms 松口仍是"短吸"→HOME */
+    /* 短吸窗口独立参数 s2_short_ms=800(多任务窗口):
+     * 750ms 松口仍是"短吸"→Alt+Tab; 吸满 800ms 松口→静默 */
     s2_sm_step(&s2, -300);
     s2_sm_step(&s2, -300);                          /* 进入 HOLD_SIP, ms=0 */
     for (i = 0; i < 15; i++) s2_sm_step(&s2, -300); /* ms=750 */
-    CHECK(s2_sm_step(&s2, 0) == S2_HOME);
+    CHECK(s2_sm_step(&s2, 0) == S2_ALTTAB);
 
-    /* 800ms 松口 → 长按静默 */
+    /* 800ms 松口 → 长吸静默 */
     s2_sm_init(&s2);
     s2_sm_step(&s2, -300);
     s2_sm_step(&s2, -300);
@@ -244,6 +306,14 @@ static void test_s2_freeze(void)
     s2_sm_step(&s2, -300);
     s2_sm_step(&s2, -300);
     CHECK(s2.mode == 2);
+
+    /* 吹方向冻结同样不进音量(双吹滚动期间) */
+    s2_sm_init(&s2);
+    s2.freeze = 1;
+    s2_sm_step(&s2, 300);
+    s2_sm_step(&s2, 300);
+    s2_sm_step(&s2, 300);
+    CHECK(s2.mode == 0 && s2.vol_active == 0);
 }
 
 static void test_pair_preempt_cancel(void)
@@ -388,10 +458,11 @@ static void test_cmd_gap_integration(void)
     s1_sm_init(&s1);
     cmd_arb_reset();
 
-    /* 短吸 → 中键命令(登记 CMD_MIDDLE, 冷却 10 拍) */
+    /* 短吸(吸住≥s1_back_min_ms) → 中键命令(登记 CMD_MIDDLE, 冷却 10 拍) */
     s1_sm_step(&s1, -300, 0, &o);
     s1_sm_step(&s1, -300, 0, &o);
     CHECK(s1.state == S1_SIP_TIMING);
+    s1_sm_step(&s1, -300, 0, &o);           /* ms=50 达最小窗口 */
     s1_sm_step(&s1, 0, 0, &o);
     CHECK(o.btn == 0x04);
 
@@ -416,7 +487,8 @@ int main(void)
     cmd_arb_reset(); test_s1_blow_debounce_reset();
     cmd_arb_reset(); test_s1_cross_port_guard();
     cmd_arb_reset(); test_s1_sip_short_middle_click();
-    cmd_arb_reset(); test_s1_sip_long_volume();
+    cmd_arb_reset(); test_s1_sip_long_home();
+    cmd_arb_reset(); test_s1_sip_window_boundary();
     cmd_arb_reset(); test_s1_sip_threshold_hysteresis();
     cmd_arb_reset(); test_scroll();
     cmd_arb_reset(); test_s2();

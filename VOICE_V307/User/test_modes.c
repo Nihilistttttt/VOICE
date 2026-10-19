@@ -397,6 +397,12 @@ void Mode_HidMouse(void)
             /* HID 报告非阻塞节流(TIM2 计时): 到期才发, 波形帧不受 50ms 限制 */
             uint32_t hid_elapsed = ((now_tick - hid_last + 20000) % 20000) / 10;
             uint16_t need_ms = 50;
+            /* 音量模式: 音量命令帧间隔独立可调(vol_rate_ms)。
+             * vol_active 为上一拍镜像, 滞后一拍无妨; home 序列进行中
+             * 仍按其 pacing 优先(更快的节奏才能走完序列) */
+            if (s2.vol_active && hom.phase == HOME_IDLE) {
+                need_ms = (uint16_t)g_params.vol_rate_ms;
+            }
             int do_hid = 0;
             if (hom.phase != HOME_IDLE) {
                 uint16_t pms = home_sm_pacing_ms(hom.phase);
@@ -412,9 +418,9 @@ void Mode_HidMouse(void)
             if (do_hid) {
                 hid_last = now_tick;
 
-            /* 手势映射（状态机实现见 Common/gesture_sm.c, 阈值/行为与原内联版一致）:
-             *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
-             *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
+             /* 手势映射（状态机实现见 Services/gesture_sm.c）:
+              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
+              *   短吸 = 中键点击(返回)   长吸 = 回主页(指针接管跑序列) */
 
             /* 双口滚动（优先于单口手势）: 双吹=上滚 双吸=下滚, 100ms 一格。
              * 前置运行: 当拍 active 新鲜可用, 供 s1/s2 冻结与抢占勾销 */
@@ -430,12 +436,11 @@ void Mode_HidMouse(void)
             }
             scr_active_prev = scr.active;
 
-            /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页
-             * (滚动期间冻结: 双吸滚动不计短吸窗口, 松口不误发回主页) */
+             /* s2 手势: 吹=音量模式(去抖确认即入), 短吸=Alt+Tab(多任务)
+              * (滚动期间冻结: 双吹滚动不进音量, 双吸滚动不计短吸窗口) */
             s2.freeze = scr.active;
             s2_cmd_t cmd = s2_sm_step(&s2, p2);
             if (cmd == S2_ALTTAB)      kb_sm_press(&kb, 0x04, 0x2B);   /* LAlt+Tab */
-            else if (cmd == S2_HOME)   home_sm_start(&hom);
 
             /* 键盘报告两相发送: 按下 → (下一循环)释放 */
             kb_out_t ko;
@@ -480,14 +485,18 @@ void Mode_HidMouse(void)
             s1.freeze = scr.active;
             s1_out_t so;
             s1_sm_step(&s1, p1, p2, &so);
+            if (so.home_trig) { home_sm_start(&hom); }   /* S1 长吸 → 回主页序列 */
 
-            /* Consumer 字节: 音量位（吸住音量模式: 指针冻结 + 倾斜=音量）
-             * 注: 与原实现一致, 音量输出不受滚动门控
-             * 倾斜轴随方向旋转同步: 上倾=VolUp 下倾=VolDown(旋转前: 右倾=Up) */
+             /* Consumer 字节: 音量位（S2 吹=音量模式: 指针冻结 + 倾斜=音量）
+              * 注: 音量输出不受滚动门控
+              * 对角划分(用户视角): 上/右/右上侧合计=VolUp, 下/左/左下侧合计=
+              * VolDown —— 摇杆上推 y_off<0, 右推 x_off<0, 故 x_off+y_off
+              * 偏负=增大, 偏正=减小(135°对角线为界) */
             uint8_t cons = 0;
-            if (so.volume_active) {
+            if (s2.vol_active) {
                 mx = 0; my = 0;
-                cons = (x_off > g_params.vol_tilt) ? 0x01 : (x_off < -g_params.vol_tilt) ? 0x02 : 0;
+                int32_t tilt = x_off + y_off;   /* 两轴倾斜合计(已过死区) */
+                cons = (tilt < -g_params.vol_tilt) ? 0x01 : (tilt > g_params.vol_tilt) ? 0x02 : 0;
             }
 
             /* 回主屏序列(CLICKNAV): 产出本拍输出, 默认不接管(ho 由 home_sm_step 覆写) */

@@ -28,8 +28,8 @@ voice_params_t g_params = {
     .idle_win          = 100,
     .scroll_on         = 150,
     .scroll_off        = 100,
-    .long_ms           = 500,
     .vol_tilt          = 600,
+    .vol_rate_ms       = 50,
     .debounce          = 2,
     .home_x_center     = 540,
     .home_y_offset     = 24,
@@ -40,6 +40,8 @@ voice_params_t g_params = {
     .blow_debounce     = 3,
     .s2_short_ms       = 800,
     .cmd_gap_ms        = 500,
+    .s1_short_ms       = 800,
+    .s1_back_min_ms    = 50,
 };
 
 /*---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ static param_desc_t s_desc[PARAM_ID_NUM] = {
     [PARAM_ID_IDLE_WIN]         = { PARAM_ID_IDLE_WIN,         "idle_win",         &g_params.idle_win,         100,    20,  400  },
     [PARAM_ID_SCROLL_ON]        = { PARAM_ID_SCROLL_ON,        "scroll_on",        &g_params.scroll_on,        150,    50,  480  },
     [PARAM_ID_SCROLL_OFF]       = { PARAM_ID_SCROLL_OFF,       "scroll_off",       &g_params.scroll_off,       100,    20,  400  },
-    [PARAM_ID_LONG_MS]          = { PARAM_ID_LONG_MS,          "long_ms",          &g_params.long_ms,          500,    100, 5000 },
+    /* [8] long_ms 已废弃: 槽位留空(ptr=NULL), 各入口跳过 */
     [PARAM_ID_VOL_TILT]         = { PARAM_ID_VOL_TILT,         "vol_tilt",         &g_params.vol_tilt,         600,    100, 8000 },
     [PARAM_ID_DEBOUNCE]         = { PARAM_ID_DEBOUNCE,         "debounce",         &g_params.debounce,         2,      1,   10   },
     [PARAM_ID_HOME_X_CENTER]    = { PARAM_ID_HOME_X_CENTER,    "home_x_center",    &g_params.home_x_center,    540,    100, 4000 },
@@ -77,6 +79,9 @@ static param_desc_t s_desc[PARAM_ID_NUM] = {
     [PARAM_ID_BLOW_DEBOUNCE]    = { PARAM_ID_BLOW_DEBOUNCE,    "blow_debounce",    &g_params.blow_debounce,    3,      1,   10   },
     [PARAM_ID_S2_SHORT_MS]      = { PARAM_ID_S2_SHORT_MS,      "s2_short_ms",      &g_params.s2_short_ms,      800,    100, 2000 },
     [PARAM_ID_CMD_GAP_MS]       = { PARAM_ID_CMD_GAP_MS,       "cmd_gap_ms",       &g_params.cmd_gap_ms,       500,    100, 2000 },
+    [PARAM_ID_S1_SHORT_MS]      = { PARAM_ID_S1_SHORT_MS,      "s1_short_ms",      &g_params.s1_short_ms,      800,    100, 2000 },
+    [PARAM_ID_S1_BACK_MIN_MS]   = { PARAM_ID_S1_BACK_MIN_MS,   "s1_back_min_ms",   &g_params.s1_back_min_ms,   50,     0,   500  },
+    [PARAM_ID_VOL_RATE_MS]      = { PARAM_ID_VOL_RATE_MS,      "vol_rate_ms",      &g_params.vol_rate_ms,      50,     20,  1000 },
 };
 
 /**
@@ -88,7 +93,7 @@ static param_desc_t s_desc[PARAM_ID_NUM] = {
  */
 uint8_t Params_SetById(uint8_t id, int32_t val)
 {
-    if (id >= PARAM_ID_NUM) {
+    if (id >= PARAM_ID_NUM || s_desc[id].ptr == 0) {
         return 0;
     }
 
@@ -100,6 +105,14 @@ uint8_t Params_SetById(uint8_t id, int32_t val)
     return 1;
 }
 
+int32_t Params_GetValue(uint8_t id)
+{
+    if (id >= PARAM_ID_NUM || s_desc[id].ptr == 0) {
+        return 0;
+    }
+    return *s_desc[id].ptr;
+}
+
 /**
  * @brief 恢复出厂默认值（只写运行时真源; SD 落盘由调用方另行触发）
  */
@@ -108,6 +121,7 @@ void Params_FactoryReset(void)
     uint8_t i;
 
     for (i = 0; i < PARAM_ID_NUM; i++) {
+        if (s_desc[i].ptr == 0) { continue; }   /* 废弃空槽 */
         *s_desc[i].ptr = s_desc[i].def;
     }
 }
@@ -126,7 +140,8 @@ uint8_t Params_SetByName(const char *name, int32_t val)
     for (i = 0; i < PARAM_ID_NUM; i++) {
         param_desc_t *d = &s_desc[i];
 
-        if ((name != 0) && (strcmp(d->name, name) == 0)) {
+        if ((d->ptr == 0) || (name == 0)) { continue; }   /* 废弃空槽/空名 */
+        if (strcmp(d->name, name) == 0) {
             if (val < d->min) { val = d->min; }
             if (val > d->max) { val = d->max; }
             *d->ptr = val;
@@ -153,7 +168,7 @@ uint8_t Params_Count(void)
  */
 int32_t Params_GetByIndex(uint8_t idx, const char **name)
 {
-    if (idx >= PARAM_ID_NUM) {
+    if (idx >= PARAM_ID_NUM || s_desc[idx].ptr == 0) {
         if (name != 0) { *name = 0; }
         return 0;
     }

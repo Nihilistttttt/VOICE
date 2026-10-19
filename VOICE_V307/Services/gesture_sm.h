@@ -48,8 +48,8 @@ typedef enum {
     CMD_LEFT,       /* s1 左键(点击/拖拽按下) */
     CMD_MIDDLE,     /* s1 中键(返回) */
     CMD_SCROLL,     /* 双口滚动进入 */
-    CMD_ALTTAB,     /* s2 Alt+Tab */
-    CMD_HOME,       /* s2 回主页 */
+    CMD_ALTTAB,     /* s2 短吸 Alt+Tab(多任务) */
+    CMD_HOME,       /* s1 长吸回主页 */
 } cmd_kind_t;
 
 void     cmd_arb_tick(void);                 /* 主循环每拍调用: 冷却递减 */
@@ -57,9 +57,10 @@ uint8_t  cmd_arb_allow(cmd_kind_t kind);     /* 命令放行查询+登记(1=放�
 void     cmd_arb_reset(void);                /* 测试/模式入口复位 */
 
 /*============================================================================
- * s1 —— 单口手势: 吹=左键点击/吹住=拖拽, 短吸=中键点击, 吸住=音量模式
+ * s1 —— 单口手势: 吹=左键点击/吹住=拖拽, 短吸(≥s1_back_min_ms)=中键返回,
+ *                长吸(≥s1_short_ms)=回主页
  *
- * SMF 建模: 扁平三状态（IDLE/TIMING/VOLUME）。
+ * SMF 建模: 扁平三状态（IDLE/TIMING/HOME）。
  * ★ 设计注记: 吹气迟滞与中键两相"跨状态每拍都要跑", 若放进父状态 run,
  *   SMF 语义是"子状态转移当拍跳过祖先 run"——中键按下会晚一拍生效,
  *   破坏"释放当拍即出 0x04"的既有行为。故采用每状态 run 内调用共享
@@ -69,7 +70,7 @@ void     cmd_arb_reset(void);                /* 测试/模式入口复位 */
 typedef enum {
     S1_IDLE = 0,        /* 无手势 */
     S1_SIP_TIMING,      /* 吸住计时中 */
-    S1_SIP_VOLUME,      /* 音量模式（调用方冻结指针并算 Consumer 位）*/
+    S1_SIP_HOME,        /* 长吸回主页保持态（触发后吸住保持, 松口退出）*/
 } s1_state_t;
 
 typedef struct {
@@ -80,6 +81,7 @@ typedef struct {
     uint8_t  sip_n;         /* 吸去抖计数 */
     uint16_t sip_ms;        /* 吸住时长（ms, 按 GS_TICK_MS 步进）*/
     uint8_t  rclick_pend;   /* 中键两相: 0=无 2=按下待发 1=待释放 */
+    uint8_t  home_evt;      /* 事件槽: 长吸达分界当拍置 1, step 读出清零 */
     int32_t  p1_tick;       /* 输入槽: 本 tick s1 口压力（step 写入, run 读取）*/
     int32_t  p2_tick;       /* 输入槽: 本 tick s2 口压力 */
     uint8_t  freeze;        /* 输入槽: 1=冻结推进（滚动期间由调用方置位, 状态机自治）*/
@@ -87,7 +89,7 @@ typedef struct {
 
 typedef struct {
     uint8_t btn;            /* 当前按键位组合 */
-    uint8_t volume_active;  /* 1=音量模式（调用方冻结指针并算 cons 位）*/
+    uint8_t home_trig;      /* 一次性: 长吸达 s1_short_ms 当拍=1（调用方启动回主页序列）*/
 } s1_out_t;
 
 void s1_sm_init(s1_sm_t *sm);
@@ -115,22 +117,23 @@ void scroll_sm_init(scroll_sm_t *sm);
 int8_t scroll_sm_step(scroll_sm_t *sm, int32_t p1, int32_t p2);  /* 返回滚轮增量 0/±1 */
 
 /*============================================================================
- * s2 —— 第二口手势: 短吹=Alt+Tab(多任务), 短吸=回主页; 按住≥500ms 松口无动作
+ * s2 —— 第二口手势: 吹(去抖确认即入)=音量模式(摇杆对角倾斜调音量, 松口退出),
+ *                短吸(<s2_short_ms松口)=Alt+Tab多任务
  *
- * SMF 建模: IDLE/HOLD_BLOW/HOLD_SIP 三状态, 命令经输出槽一次性返回。
+ * SMF 建模: IDLE/HOLD_SIP/VOLUME 三状态, 命令经输出槽一次性返回。
  *============================================================================*/
 typedef enum {
     S2_NONE = 0,
-    S2_ALTTAB,          /* 短吹松口 */
-    S2_HOME,            /* 短吸松口 */
+    S2_ALTTAB,          /* 短吸松口(多任务切换) */
 } s2_cmd_t;
 
 typedef struct {
     struct smf_ctx ctx;
-    uint8_t  mode;      /* 镜像: 0=无 1=吹按住 2=吸按住（entry 维护）*/
-    uint16_t ms;        /* 按住时长 */
+    uint8_t  mode;      /* 镜像: 0=无 2=吸按住 3=音量（entry 维护）*/
+    uint16_t ms;        /* 吸住时长(短吸窗口计时用) */
     uint8_t  blow_n;    /* 吹去抖计数 */
     uint8_t  sip_n;     /* 吸去抖计数 */
+    uint8_t  vol_active;/* 镜像: 1=音量模式(吹确认即入, 调用方冻结指针算 cons) */
     s2_cmd_t cmd_out;   /* 输出槽: 一次性命令 */
     int32_t  p2_tick;   /* 输入槽: 本 tick s2 口压力（step 写入, run 读取）*/
     uint8_t  freeze;    /* 输入槽: 1=冻结推进（双口滚动期间由调用方置位）*/

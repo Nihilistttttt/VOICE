@@ -154,8 +154,11 @@ uint8_t Params_SD_Save(void)
     for (i = 0; ok && (i < Params_Count()); i++) {
         const char *name = 0;
         int32_t     v    = Params_GetByIndex(i, &name);
-        int         n    = snprintf(line, sizeof(line), "%s=%ld\r\n",
-                                    name, (long)v);
+        int         n;
+
+        if (name == 0) { continue; }    /* 废弃空槽不落盘 */
+        n = snprintf(line, sizeof(line), "%s=%ld\r\n",
+                     name, (long)v);
 
         if ((n <= 0) || (f_write(&fp, line, (UINT)n, &bw) != FR_OK) ||
             (bw != (UINT)n)) {

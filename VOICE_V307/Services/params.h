@@ -33,8 +33,8 @@ typedef struct {
     int32_t idle_win;           /* 另一口空闲窗口     默认 100 */
     int32_t scroll_on;          /* 滚动进入阈值       默认 150 */
     int32_t scroll_off;         /* 滚动退出阈值       默认 100 */
-    int32_t long_ms;            /* 长按判定 ms        默认 500 */
-    int32_t vol_tilt;           /* 音量倾斜计数       默认 600 */
+    int32_t vol_tilt;           /* 音量对角倾斜合计阈值 默认 600 */
+    int32_t vol_rate_ms;        /* 音量调节间隔ms     默认 50 */
     int32_t debounce;           /* 按下去抖 tick      默认 2   */
     /* 回主页(CLICKNAV) */
     int32_t home_x_center;      /* X 定位计数         默认 540 */
@@ -44,10 +44,15 @@ typedef struct {
     int32_t locate_ms;          /* 定位段节奏 ms      默认 25  */
     /* 双口仲裁(s2) */
     int32_t pair_debounce;      /* 双口同向确认拍数   默认 2   */
-    int32_t blow_debounce;      /* s1吹按下确认拍数   默认 3   */
-    int32_t s2_short_ms;        /* s2短吸回主页窗口ms 默认 800 */
+    int32_t blow_debounce;      /* 吹确认拍数(s1左键/s2音量) 默认 3 */
+    int32_t s2_short_ms;        /* s2短吸多任务窗口ms 默认 800 */
     /* 命令仲裁 */
     int32_t cmd_gap_ms;         /* 异种命令最小间隔ms 默认 500 */
+    int32_t s1_short_ms;        /* s1短/长吸分界ms    默认 800;
+                                    短于此且≥最小窗口松口=中键返回,
+                                    吸够此时长=回主页 */
+    int32_t s1_back_min_ms;     /* s1返回最小吸时ms   默认 50;
+                                    吸住至少此时长松口才算返回(更短=毛刺吞掉) */
 } voice_params_t;
 
 /* 运行时唯一真源(静态初始化为默认值) */
@@ -61,6 +66,14 @@ extern voice_params_t g_params;
  * @return 1=id 有效已写入; 0=id 不存在
  */
 uint8_t Params_SetById(uint8_t id, int32_t val);
+
+/**
+ * @brief 按 id 读当前参数值（WiFi 全量推送/诊断用）
+ *
+ * @param id 参数 id（见 PARAM_ID_* 宏）
+ * @return 当前值; id 不存在返回 0
+ */
+int32_t Params_GetValue(uint8_t id);
 
 /**
  * @brief 按键名设置参数（SD 配置文件解析入口）
@@ -99,7 +112,8 @@ int32_t Params_GetByIndex(uint8_t idx, const char **name);
 #define PARAM_ID_IDLE_WIN         5
 #define PARAM_ID_SCROLL_ON        6
 #define PARAM_ID_SCROLL_OFF       7
-#define PARAM_ID_LONG_MS          8
+/* id 8 已废弃(原 long_ms: S2 吹即音量后无用途)。槽位留空防 id 漂移,
+ * 描述符 ptr=NULL 由各入口跳过; id 不复用 */
 #define PARAM_ID_VOL_TILT         9
 #define PARAM_ID_DEBOUNCE         10
 #define PARAM_ID_HOME_X_CENTER    11
@@ -111,6 +125,9 @@ int32_t Params_GetByIndex(uint8_t idx, const char **name);
 #define PARAM_ID_BLOW_DEBOUNCE    17
 #define PARAM_ID_S2_SHORT_MS      18
 #define PARAM_ID_CMD_GAP_MS       19
-#define PARAM_ID_NUM              20
+#define PARAM_ID_S1_SHORT_MS      20
+#define PARAM_ID_S1_BACK_MIN_MS   21
+#define PARAM_ID_VOL_RATE_MS      22
+#define PARAM_ID_NUM              23
 
 #endif /* __PARAMS_H__ */
