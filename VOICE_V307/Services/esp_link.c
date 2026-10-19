@@ -32,10 +32,10 @@
 #include <string.h>
 
 /* ---- 常量 ---------------------------------------------------------------*/
-#define ESP_BAUD        2000000     /* 与调试口统一 2M(EEG 家族标准) */
+#define ESP_BAUD        1000000     /* 与调试口统一 2M(EEG 家族标准) */
 #define ESP_RX_RING     512         /* RX 环形缓冲(IRQ 写, 主循环读) */
 #define ESP_TX_DIV      3           /* 波形包分频: 每 3 tick ≈ 60ms */
-#define ESP_DIAG_DIV    20          /* 诊断行分频: 每 20 tick = 1s */
+#define ESP_DIAG_DIV    100000000          /* 诊断行分频: 每 20 tick = 1s */
 
 #define FRAME_HEAD      0xAA
 #define FRAME_MAX_PAY   32
@@ -52,6 +52,7 @@ static volatile uint32_t s_rx_count = 0;/* IRQ 收到字节总数(诊断) */
 static uint32_t  s_rx_drop = 0;         /* 环满丢弃计数 */
 static uint32_t  s_frame_ok = 0;        /* CRC 通过帧数(诊断) */
 static uint32_t  s_frame_bad = 0;       /* CRC 失败帧数(诊断) */
+static uint32_t  s_tx_tmo = 0;          /* UART6 TX 超时次数(诊断) */
 
 /* RX 帧状态机 */
 static uint8_t  s_fstate = 0;           /* 0=找头 1=LEN 2=TYPE 3=PAYLOAD 4=CRC */
@@ -75,20 +76,26 @@ static uint8_t frame_crc(uint8_t type, const uint8_t *pay, uint8_t len)
 
 /**
  * @brief 发送一帧(阻塞式, 5+LEN 字节)
+ * ★ TXE 等待加超时保护(1ms): UART6 @2M 发 1 字节 5us, 正常 TXE 置位
+ *   远快于超时。超时跳过该字节(数据丢失但不卡死主循环)——防御 ESP8266
+ *   端异常导致 UART6 TX 长时间不空的情况(实测单吹超阈值波形卡死场景)
  */
 static void esp_send_frame(uint8_t type, const uint8_t *pay, uint8_t len)
 {
     uint8_t head[3] = { FRAME_HEAD, (uint8_t)(len + 1), type };
     uint8_t crc = frame_crc(type, pay, len);
     for (int i = 0; i < 3; i++) {
-        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+        uint32_t t = 2000;
+        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { if (--t == 0) { s_tx_tmo++; break; } }
         USART_SendData(UART6, head[i]);
     }
     for (uint8_t i = 0; i < len; i++) {
-        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+        uint32_t t = 2000;
+        while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { if (--t == 0) { s_tx_tmo++; break; } }
         USART_SendData(UART6, pay[i]);
     }
-    while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { }
+    uint32_t t = 2000;
+    while (USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET) { if (--t == 0) break; }
     USART_SendData(UART6, crc);
 }
 
@@ -214,51 +221,47 @@ void EspLink_Init(void)
 /**
  * @brief 消化接收环 → 帧解析; 周期发送波形帧; 诊断输出
  */
-void EspLink_Poll(int32_t p1, int32_t p2)
+void EspLink_Poll(void)
 {
-    /* RX: 排空接收环 → 帧状态机 */
+    /* RX: 排<空接收环 → 帧状态机 */
     while (s_tail != s_head) {
         uint8_t b = s_ring[s_tail];
         s_tail = (uint16_t)((s_tail + 1) % ESP_RX_RING);
         esp_parse_byte(b);
     }
     if (s_rx_drop != 0) {
-        LOGW("esp", "RX 环满丢弃 %lu", (unsigned long)s_rx_drop);
+        //LOGW("esp", "RX 环满丢弃 %lu", (unsigned long)s_rx_drop);
         s_rx_drop = 0;
     }
+}
 
-    /* TX: 波形帧 WAVE(s1,s2) — int16 饱和钳位, 32 位运算防溢出 */
-    static uint32_t tx_div = 0;
+void EspLink_SendWave(int32_t p1, int32_t p2)
+{
+    /* TX: 波形帧 WAVE(s1,s2) — 传感器读一次调一次, 不重复发 */
     uint8_t t[4] = {0};
-    uint8_t tx_now = 0;
-
-    if (++tx_div >= ESP_TX_DIV) {
-        tx_div = 0;
-        int32_t a = p1, b = p2;
-        if (a < -32768) { a = -32768; }
-        if (a > 32767)  { a = 32767; }
-        if (b < -32768) { b = -32768; }
-        if (b > 32767)  { b = 32767; }
-        t[0] = (uint8_t)((uint32_t)a >> 8); t[1] = (uint8_t)a;
-        t[2] = (uint8_t)((uint32_t)b >> 8); t[3] = (uint8_t)b;
-        esp_send_frame(TYPE_WAVE, t, 4);
-        tx_now = 1;
-    }
+    int32_t a = p1, b = p2;
+    if (a < -32768) { a = -32768; }
+    if (a > 32767)  { a = 32767; }
+    if (b < -32768) { b = -32768; }
+    if (b > 32767)  { b = 32767; }
+    t[0] = (uint8_t)((uint32_t)a >> 8); t[1] = (uint8_t)a;
+    t[2] = (uint8_t)((uint32_t)b >> 8); t[3] = (uint8_t)b;
+    esp_send_frame(TYPE_WAVE, t, 4);
 
     /* 诊断: 每秒一条(字节/帧 计数与最近波形样本, LOGD) */
     static uint32_t diag_div = 0;
     if (++diag_div >= ESP_DIAG_DIV) {
         diag_div = 0;
-        LOGD("esp", "diag rx=%lu ok=%lu bad=%lu wave=%02X%02X %02X%02X%s",
+        LOGD("esp", "diag rx=%lu ok=%lu bad=%lu tmo=%lu wave=%02X%02X %02X%02X",
              (unsigned long)s_rx_count, (unsigned long)s_frame_ok,
-             (unsigned long)s_frame_bad, t[0], t[1], t[2], t[3],
-             tx_now ? "" : " (本秒未发)");
+             (unsigned long)s_frame_bad, (unsigned long)s_tx_tmo, t[0], t[1], t[2], t[3]);
     }
 }
 
 #else /* !USE_ESP_LINK: 空实现 */
 
 void EspLink_Init(void) { }
-void EspLink_Poll(int32_t p1, int32_t p2) { (void)p1; (void)p2; }
+void EspLink_Poll(void) { }
+void EspLink_SendWave(int32_t p1, int32_t p2) { (void)p1; (void)p2; }
 
 #endif /* USE_ESP_LINK */

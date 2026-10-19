@@ -131,6 +131,5 @@ void Pressure_ZeroCalibrate(uint8_t samples)
     s_zero1 = median16(b1, n);
     s_zero2 = median16(b2, n);
 
-    printf("[Pressure] zero calibrate: s1=%ld s2=%ld (%u samples)\r\n",
-           s_zero1, s_zero2, n);
+    printf("[Pressure] zero calibrate: s1=%ld s2=%ld (%u samples)\r\n", s_zero1, s_zero2, n);
 }

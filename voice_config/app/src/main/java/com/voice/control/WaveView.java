@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.util.Log;
 import android.view.View;
 
 /**
@@ -20,9 +21,10 @@ public class WaveView extends View {
 
     private final int[] ch1 = new int[N];           /* Pa(有符号) */
     private final int[] ch2 = new int[N];
-    private int head = 0;
-    private int count = 0;
+    private volatile int head = 0;
+    private volatile int count = 0;
     private long lastDraw = 0;
+    private int drawSeq = 0;
 
     private final Paint pGrid = new Paint();
     private final Paint pZero = new Paint();
@@ -34,6 +36,7 @@ public class WaveView extends View {
     private final Paint pThOn = new Paint();
     private final Paint pThOff = new Paint();
     private final Paint pThScroll = new Paint();
+    private final Paint pThTag = new Paint();
     private final Path path = new Path();
 
     private int thPressOn = 250, thPressOff = 150;
@@ -68,6 +71,8 @@ public class WaveView extends View {
         pThOff.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
         pThScroll.setColor(0xFF43A047); pThScroll.setStrokeWidth(2f);
         pThScroll.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
+        pThTag.setAntiAlias(true);
+        pThTag.setTextSize(22f);
     }
 
     /* ==== 控制接口(EEG 同款) ==== */
@@ -104,7 +109,7 @@ public class WaveView extends View {
         long now = System.currentTimeMillis();
         if (now - lastDraw >= INVALIDATE_MS) {
             lastDraw = now;
-            postInvalidate();
+            postInvalidateOnAnimation();
         }
     }
 
@@ -123,6 +128,10 @@ public class WaveView extends View {
     @Override
     protected void onDraw(Canvas cv) {
         super.onDraw(cv);
+        if ((drawSeq++ % 10) == 0) {
+            Log.d("ESP_UI", "onDraw count=" + count + " head=" + head
+                    + " last1=" + ch1[(head - 1 + N) % N]);
+        }
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
 
@@ -176,10 +185,8 @@ public class WaveView extends View {
         if (y < 0 || y > getHeight()) return;
         cv.drawLine(0, y, w, y, p);
         if (tag != null) {
-            Paint lp = new Paint(pLabel);
-            lp.setColor(p.getColor());
-            lp.setTextSize(22f);
-            cv.drawText(tag, w - 130, y - 6, lp);
+            pThTag.setColor(p.getColor());
+            cv.drawText(tag, w - 130, y - 6, pThTag);
         }
     }
 

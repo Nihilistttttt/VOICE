@@ -15,6 +15,9 @@ public class BlowBarView extends View {
     private int writeIdx = 0;
     private int sampleCount = 0;
     private int threshold = 2500;
+    private long lastDraw = 0;
+    private static final long INVALIDATE_MS = 50;
+    private final float[] hsvBuf = new float[3];
 
     private final Paint paint = new Paint();
     private final Paint textPaint = new Paint();
@@ -47,14 +50,19 @@ public class BlowBarView extends View {
         samplesB[writeIdx] = meanB;
         writeIdx = (writeIdx + 1) % MAX_SAMPLES;
         if (sampleCount < MAX_SAMPLES) sampleCount++;
-        invalidate();
+        long now = System.currentTimeMillis();
+        if (now - lastDraw >= INVALIDATE_MS) {
+            lastDraw = now;
+            postInvalidate();
+        }
     }
 
     private int energyToColor(int energy) {
         if (energy == 0) return Color.parseColor("#1a1a2e");
         float ratio = Math.min(1.0f, (float) energy / threshold);
         float hue = (1.0f - ratio) * 200;
-        return Color.HSVToColor(255, new float[]{hue, 0.8f, 0.5f + ratio * 0.5f});
+        hsvBuf[0] = hue; hsvBuf[1] = 0.8f; hsvBuf[2] = 0.5f + ratio * 0.5f;
+        return Color.HSVToColor(255, hsvBuf);
     }
 
     @Override

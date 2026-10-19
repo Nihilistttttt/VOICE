@@ -1,5 +1,7 @@
 package com.voice.control;
 
+import android.util.Log;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
@@ -142,13 +144,27 @@ public class EspLink {
         byte[] buf = new byte[1024];
         try {
             InputStream in = s.getInputStream();
-            int n;
+            int n = -1;
+            long lastLog = 0;
+            long rxBytes = 0, reads = 0;
             while (mRun && (n = in.read(buf)) > 0) {
                 for (int i = 0; i < n; i++) {
                     feedByte(buf[i]);
                 }
+                rxBytes += n;
+                reads++;
+                long now = System.currentTimeMillis();
+                if (now - lastLog >= 1000) {
+                    lastLog = now;
+                    Log.d("ESP_RX", "1s=" + rxBytes + "B reads=" + reads
+                            + " head=" + rHead + " ok=" + rxOk + " crc=" + rxBad);
+                    rxBytes = 0;
+                    reads = 0;
+                }
             }
-        } catch (Exception ignored) {
+            Log.w("ESP_RX", "rxLoop exit n=" + n);
+        } catch (Exception e) {
+            Log.w("ESP_RX", "rxLoop exc: " + e.getMessage());
         }
         if (mRun) {
             mListener.onClientDisconnected();
@@ -185,6 +201,7 @@ public class EspLink {
     private byte rHead;
     private int rLen, rType, rIdx, rCrc;
     private byte[] rPay = new byte[64];
+    private long rxOk = 0, rxBad = 0;
 
     private void feedByte(byte b) {
         switch (rHead) {
@@ -201,13 +218,15 @@ public class EspLink {
             break;
         case 3:
             if (rIdx < rPay.length) rPay[rIdx++] = b;
-            rCrc ^= b;
+            rCrc ^= (b & 0xFF);   /* ★ 必须掩码: b>=0x80 时符号扩展污染 rCrc 高位, CRC 恒错 */
             if (--rLen == 0) rHead = 4;
             break;
         case 4:
             if ((b & 0xFF) == rCrc) {
+                rxOk++;
                 dispatch(rType, rPay, rIdx);
             } else {
+                rxBad++;
                 mListener.onLog("错帧(CRC)");
             }
             rHead = 0;
@@ -221,6 +240,7 @@ public class EspLink {
             if (len >= 4) {
                 int s1 = (short)(((pay[0] & 0xFF) << 8) | (pay[1] & 0xFF));
                 int s2 = (short)(((pay[2] & 0xFF) << 8) | (pay[3] & 0xFF));
+                Log.d("ESP_WAVE", "s1=" + s1 + " s2=" + s2);
                 mListener.onWave(s1, s2);
             }
             break;

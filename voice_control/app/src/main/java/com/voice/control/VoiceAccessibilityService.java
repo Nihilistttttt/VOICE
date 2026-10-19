@@ -1554,6 +1554,9 @@ public class VoiceAccessibilityService extends AccessibilityService {
     }
 
     private void refreshFocusableNodes() {
+        for (AccessibilityNodeInfo n : focusableNodes) {
+            try { n.recycle(); } catch (Exception ignored) {}
+        }
         focusableNodes.clear();
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;

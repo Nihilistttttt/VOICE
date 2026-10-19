@@ -26,11 +26,16 @@
 void EspLink_Init(void);
 
 /**
- * @brief 每 tick 轮询: 消化接收环→协议解析; 周期发送压差波形包
+ * @brief 每 tick 轮询: 消化接收环→协议解析(只做 RX, 不发波形)
+ */
+void EspLink_Poll(void);
+
+/**
+ * @brief 发送一帧压差波形 WAVE(s1,s2) — 传感器读一次调一次, 不重复发
  *
  * @param p1 当前 s1 压力 Pa
  * @param p2 当前 s2 压力 Pa
  */
-void EspLink_Poll(int32_t p1, int32_t p2);
+void EspLink_SendWave(int32_t p1, int32_t p2);
 
 #endif /* __ESP_LINK_H__ */

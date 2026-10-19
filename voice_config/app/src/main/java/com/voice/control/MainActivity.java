@@ -56,6 +56,7 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     private final Handler mUi = new Handler(Looper.getMainLooper());
     private long mLastLog = 0;
     private boolean mShowWave = false;
+    private int mLastS1 = Integer.MIN_VALUE, mLastS2 = Integer.MIN_VALUE;
     private final java.util.HashMap<Integer, Integer> mCur = new java.util.HashMap<>();
 
     @Override
@@ -404,32 +405,34 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
 
     @Override
     public void onWave(int s1, int s2) {
-        if (mWaveView != null) mWaveView.addSample(s1, s2);
         mUi.post(() -> {
-            mS1Text.setText("S1 " + s1 + " Pa");
-            mS2Text.setText("S2 " + s2 + " Pa");
+            if (mWaveView != null) mWaveView.addSample(s1, s2);
+            if (s1 != mLastS1) { mLastS1 = s1; mS1Text.setText("S1 " + s1 + " Pa"); }
+            if (s2 != mLastS2) { mLastS2 = s2; mS2Text.setText("S2 " + s2 + " Pa"); }
         });
     }
 
     @Override
     public void onParamEcho(int id, int value) {
-        mCur.put(id, value);
-        if (id == 3 || id == 4 || id == 6 || id == 7) {
-            updateThresholds();                   /* 阈值线联动 */
-        }
-        for (int i = 0; i < PARAMS.length; i++) {
-            if ((Integer) PARAMS[i][0] == id) {
-                boolean isSens = (id == 1);
-                EditText v = findViewById(mEdits[i]);
-                if (v != null) {
-                    String txt = isSens ? stepDivToSens(value)
-                                        : String.valueOf(value);
-                    mUi.post(() -> v.setText(txt));
-                }
-                appendLog("回执: " + PARAMS[i][1] + " = " + value);
-                break;
+        mUi.post(() -> {
+            mCur.put(id, value);
+            if (id == 3 || id == 4 || id == 6 || id == 7) {
+                updateThresholds();                   /* 阈值线联动 */
             }
-        }
+            for (int i = 0; i < PARAMS.length; i++) {
+                if ((Integer) PARAMS[i][0] == id) {
+                    boolean isSens = (id == 1);
+                    EditText v = findViewById(mEdits[i]);
+                    if (v != null) {
+                        String txt = isSens ? stepDivToSens(value)
+                                            : String.valueOf(value);
+                        v.setText(txt);
+                    }
+                    appendLog("回执: " + PARAMS[i][1] + " = " + value);
+                    break;
+                }
+            }
+        });
     }
 
     @Override

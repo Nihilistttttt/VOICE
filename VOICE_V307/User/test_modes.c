@@ -338,35 +338,57 @@ void Mode_HidMouse(void)
 
     int32_t p1 = 0, p2 = 0;     /* 摇杆/波形共用: 未枚举时保持 0 */
 
+    /* TIM2 自由运行: 1计数=100us, 20000计数=2s, 测主循环一圈耗时 */
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+    TIM2->PSC = 14399;
+    TIM2->ATRLR = 20000;
+    TIM2->CTLR1 |= 1;
+    uint32_t prev_tick = 0;
+    uint32_t hid_last = 0;
+    uint32_t sens_last = 0;
+
     while (1) {
+        uint32_t now_tick = TIM2->CNT;
+        uint32_t loop_ms = ((now_tick - prev_tick + 20000) % 20000) / 10;
+        prev_tick = now_tick;
         /* 与 USB 枚举状态无关的常驻服务(未接患者手机时 CLI/WiFi 调参
          * 仍必须可用——这正是它们存在的意义) */
         Log_Service();          /* 日志限频刷 SD */
         Cmd_Poll(1);            /* 调试串口命令(save/factory/log) */
-        EspLink_Poll(p1, p2);   /* WiFi 调参: 参数下行解析+波形(旧值) */
+        EspLink_Poll();         /* WiFi 调参: 参数下行解析(只 RX) */
+
+        /* 传感器读取 + 波形帧: 独立 50ms 计时, 不依赖 USB 枚举
+         * (脱机 HID_REQUIRE_PHONE=0 时 USB 未枚举, 波形帧仍须发送) */
+        uint32_t sens_elapsed = ((now_tick - sens_last + 20000) % 20000) / 10;
+        if (sens_elapsed >= 50) {
+            sens_last = now_tick;
+            p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
+            p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
+            EspLink_SendWave(p1, p2);
+        }
 
         if (USBFS_DevEnumStatus) {
-            /* 节奏策略: 回主页序列按相选择, 其余 50ms/圈
-             * ★ Android 指针加速度把"发多快"耦合进"走多远": 冲角段可快发
-             *   (钳位兜底), X/Y 定位段必须 25ms/帧, 点击保持 30ms */
+            /* HID 报告非阻塞节流(TIM2 计时): 到期才发, 波形帧不受 50ms 限制 */
+            uint32_t hid_elapsed = ((now_tick - hid_last + 20000) % 20000) / 10;
+            uint16_t need_ms = 50;
+            int do_hid = 0;
             if (hom.phase != HOME_IDLE) {
                 uint16_t pms = home_sm_pacing_ms(hom.phase);
                 if (pms == 0) {
-                    /* 冲角段: 主机取走上一帧即发下一帧(EP2 bInterval=1ms) */
-                    uint16_t w = 0;
-                    while (USBFS_Endp_Busy[DEF_UEP2] && ++w < 100) Delay_Us(100);
+                    if (!USBFS_Endp_Busy[DEF_UEP2]) do_hid = 1;
                 } else {
-                    Delay_Ms(pms);
+                    need_ms = pms;
                 }
-            } else {
-                Delay_Ms(50);
             }
+            if (!do_hid && hid_elapsed >= need_ms) do_hid = 1;
+
+
+            if (do_hid) {
+                hid_last = now_tick;
 
             /* 手势映射（状态机实现见 Common/gesture_sm.c, 阈值/行为与原内联版一致）:
              *   短吹 = 左键点击(确定)   吹住 = 左键按住 + 指针跟随 = 拖拽
              *   短吸 = 中键点击(返回)   吸住 = 音量模式(指针冻结, 倾斜=音量) */
-            p1 = Pressure_ReadPa(PRESSURE_SENSOR_1);
-            p2 = Pressure_ReadPa(PRESSURE_SENSOR_2);
 
             /* s2 手势: 短吹=Alt+Tab(多任务切换) 短吸=回主页 */
             s2_cmd_t cmd = s2_sm_step(&s2, p2);
@@ -500,13 +522,16 @@ void Mode_HidMouse(void)
                 printf("X=%d Y=%d mx=%d my=%d btn=%d\r\n",
                        x_raw, y_raw, mx, my, mouse_report[0]);
 #if USE_PRESSURE
-                printf("[Pressure] s1=%ld Pa%s  s2=%ld Pa%s\r\n",
+                printf("[Pressure] s1=%ld Pa%s  s2=%ld Pa%s  loop=%lums\r\n",
                        dbg_p1, sat1 ? " [SAT]" : "",
-                       dbg_p2, sat2 ? " [SAT]" : "");
+                       dbg_p2, sat2 ? " [SAT]" : "", (unsigned long)loop_ms);
 #endif
             }
+            }
         } else {
-            Delay_Ms(200);
+            uint32_t hid_elapsed = ((now_tick - hid_last + 20000) % 20000) / 10;
+            if (hid_elapsed >= 200) {
+                hid_last = now_tick;
             /* 断连恢复(审计 F3): 未完成的回主页序列作废。
              * 键盘无需外部干预: SMF 状态驻留在 kb 结构体内, 若断连时悬在
              * PRESSED 相（已发按下待释放）, 重连后第一次 kb_sm_step 会照常
@@ -531,7 +556,9 @@ void Mode_HidMouse(void)
                    Joystick_GetX(), Joystick_GetY(),
                    dbg_p1, sat1 ? " [SAT]" : "", dbg_p2, sat2 ? " [SAT]" : "");
 #endif
+            }
         }
+        Delay_Us(2000);
     }
 #endif /* USE_JOYSTICK */
 }

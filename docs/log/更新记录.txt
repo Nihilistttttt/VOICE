@@ -1477,3 +1477,58 @@ MODE=2 直读 PARAMS.INI 实证; App 装机(adb install)真机操作。
 
 遗留: 波形滚动速度偏慢的观感已通过 X 窗口切换缓解; ESP RX@2M
 理论可靠性存疑但实测 8/8 帧+正常使用未复现故障。
+
+----------------------------------------
+一百三十、波形卡顿真凶闭环(Java CRC 符号扩展)+主循环时序重构(TIM2)+UART7 迁移实验+EEG 医生端联调
+----------------------------------------
+
+背景: WiFi 调参链路的波形显示"单吹按住卡死/双吹正常", 历经三日
+多轮排查(波特率/U4模拟开关/ESP固件/App渲染/NVIC优先级), 最终由
+码道定位真凶——Java 有符号字节 CRC 污染。本章归档全部实验与结论。
+
+★ 根因(码道定位, EspLink.java feedByte case 3):
+  rCrc ^= b —— Java byte 有符号, payload 字节 ≥0x80 时 b 符号扩展
+  成 0xFFFFFFxx, 异或污染 rCrc 高 24 位 → CRC 恒错 → 帧全丢。
+  触发区间: s1_lo≥0x80 ⟺ s1∈[384,511](吹气饱和 500=0x01F4 必中)
+  = "380-500 区间卡死"; 静息字节全 <0x80 = 正常。修复: rCrc ^= (b & 0xFF)。
+  ★ 同源佐证: EEG 医生端 checksum16 有 &0xFF 故流畅——线索在手未追, 教训记录。
+
+★ 主循环时序重构(码道, User/test_modes.c + esp_link 拆分):
+  原结构: Delay_Ms(50) 固定拍 + 回主页冲角段 while(Busy) Delay_Us(100)
+  忙等 + 传感器/波形/HID/诊断全挤一循环 → 圈耗时波动拖乱波形帧节奏。
+  新结构: TIM2 自由运行(100µs/计数)实测圈耗时(loop=%lums 诊断);
+  ①传感器+波形帧独立 50ms 计时(不依赖 USB 枚举——脱机也发) ②HID
+  报告非阻塞节流(hid_elapsed>=need_ms, 去 Delay 与忙等) ③EspLink_Poll()
+  只做 RX(参数下行), 波形发送拆 EspLink_SendWave(p1,p2) 独立调用
+  ④esp_send_frame TXE 等待加 1ms 超时(ESP 端异常不再卡死主循环,
+  diag 增 tmo 计数) ⑤未枚举 200ms 节流。
+
+★ ESP8266 端(esp8266_link.ino):
+  ESP_DEBUG 编译开关([WIFI] 调试行, 正式接 MCU 数据线时置 0——
+  调试行混入 UART7 RX 通道); 保留 EEG 架构(TCP client/EEPROM 档案/
+  PING 拦截/非阻塞写/关省电)。
+
+★ 波形页(WaveView): 重写为 EEG WaveformView 同款(单通道×2 上下并排,
+  niceNum 刻度/X 秒窗/Y 每格 Pa 可填写/暂停/清屏); 阈值虚线随参数联动。
+
+★ 实验与结论(证据链全在 com9 日志/logcat 探针/原理图):
+  ①U4 模拟开关路径(UART6/PC0/PC1)在 2M 下信号完整性劣化(RON×寄生
+    电容 RC 低通)——UART7 排针直连(PE12/PE13, FullRemap)实验流畅;
+    机械开关没事的原因: 触点 RON≈0 无寄生电容; 带宽 500MHz 无关。
+  ②esp_link.c 硬件路径已迁移 UART7(H3 排针直连 ESP), U4 通道 3/4 退役。
+  ③43% 帧损坏实测与 CRC bug 模型吻合——传输层无罪(字节到达正常)。
+  ④医生端无波形根因: VOICE 配置 App 占用 41002(EADDRINUSE)——
+    两 App 同端口冲突; 且医生端 tcpServer.start() 在波形页才启动。
+  ⑤TEST_MODE 6(VOICE 三角波)/7(EEG 八通道 250Hz 仿真)已实现,
+    排查利器保留。
+  ⑥Pressure_ReadPaRaw(不钳位)新增——波形可显示饱和段真实动态;
+    手势判定仍用钳位 ReadPa 不变。
+
+★ 诊断: 串口1 每拍(20Hz)一行全量输出(X/Y/mx/my/btn/s1/s2+SAT),
+  直接引用本拍读数(省一次 I2C); 波形深挖撤回(NVIC 优先级实验与
+  ORE 探针留在固件内无害)。
+
+★ 教训: ①Java byte 参与位运算必须 &0xFF ②"帧损坏"归因前先打印
+  损坏帧内容(区分传输损坏 vs 解析 bug——本次 43% 帧损坏实为解析错) ③
+  竞争模型要设计判别实验, 不能沿单假设修到底 ④(码道)TXE 等待必须
+  带超时, 防对端异常卡死主循环。

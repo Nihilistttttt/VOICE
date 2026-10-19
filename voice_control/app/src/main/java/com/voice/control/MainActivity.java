@@ -1428,6 +1428,7 @@ public class MainActivity extends AppCompatActivity implements UsbAccessoryManag
         removeLearnFloatWindow();
         removeCalibration();
         sUsbManager.setCallback(null, null);
+        instance = null;
     }
 
     @Override
