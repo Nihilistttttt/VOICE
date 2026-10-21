@@ -1532,3 +1532,33 @@ MODE=2 直读 PARAMS.INI 实证; App 装机(adb install)真机操作。
   损坏帧内容(区分传输损坏 vs 解析 bug——本次 43% 帧损坏实为解析错) ③
   竞争模型要设计判别实验, 不能沿单假设修到底 ④(码道)TXE 等待必须
   带超时, 防对端异常卡死主循环。
+
+----------------------------------------
+一百三十一、气压阈值下限解除(患者弱吹适配)+波形 Y 轴可配置(EEG 同款)+波形页亮色化
+----------------------------------------
+
+★ 气压阈值下限解除: params.c 六个 Pa 类参数(press_on/press_off/idle_win/
+  scroll_on/scroll_off/vol_tilt)的 min 全部 0——避免患者吹气过弱时阈值
+  调不下去; App 参数页(MainActivity PARAMS 表)同步。注意: 迟滞对
+  (press_on>press_off / scroll_on>scroll_off)无交叉钳位, 调参需自守关系。
+
+★ 波形 Y 轴可配置(WaveView.setYAxis(stepPa, labelCount), EEG 同款):
+  半量程 = 步长×(标签数-1)/2 上下对称; 波形页控制条新增 "Y格Pa"+"Y标签"
+  两输入框(默认 100/11 = ±500Pa), 与 X 秒窗共用"应用"按钮(applyWaveConfig),
+  SharedPreferences 持久化("wave": xSec/yStep/yLabels), 启动自动恢复。
+  网格双层: 粗格标签线(每步长一条, 标签=步长倍数) + 细格线(步长/5)。
+
+★ 波形页亮色化(用户反馈"别纯黑"):
+  页面背景/绘图区改浅灰白(#F5F6F8), 网格/轴线/文字改深灰系;
+  S2 曲线加深蓝(#1976D2), S1/S2 数值 chips 深红/深蓝; 控制条
+  输入框前加小标签(X秒/Y格Pa/Y标签); 应用/暂停/清屏按钮改自适应
+  宽度; 页面内边距压缩(10→6dp)/chips 字号 16→14/WaveView 上边距
+  6→2dp——波形绘图区高度最大化。
+
+★ 工程教训(脚本事故): python 补丁脚本 open(path,"w") 打开即清空,
+  write 抛异常时文件已空——WaveView.java 曾被清空(从 4ada392 提交
+  恢复, 无丢失)。**脚本写文件必须"临时文件 + os.replace"原子替换**。
+  另: 跨行正则批量替换会拆坏含嵌套括号的调用(HAL_GPIO_PIN(2,0)),
+  带内嵌逗号的宏调用禁止用简单 split——已改用手工修复。
+
+★ 配套: 分发副本 VOICE配置App_1020.apk(debug 签名, 未入库)。

@@ -38,17 +38,17 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
                 "倍率越大光标跟手越快"},
         {2, "joy_clamp",        "单帧最大位移",      64,  8,    127,  "摇杆控制", "px/帧",
                 "光标单帧限速, 防瞬移跳跃"},
-        {3, "press_on",         "吹气按下阈值",      250, 50,   480,  "压差手势", "Pa",
+        {3, "press_on",         "吹气按下阈值",      250, 0,    480,  "压差手势", "Pa",
                 "s1口吹到该压力→按下左键(点击/拖拽起点)"},
-        {4, "press_off",        "吹气释放阈值",      150, 20,   400,  "压差手势", "Pa",
+        {4, "press_off",        "吹气释放阈值",      150, 0,    400,  "压差手势", "Pa",
                 "吹住时回落到该值→松开左键(须低于按下阈值)"},
         {5, "idle_win",         "跨口空闲窗口",      100, 20,   400,  "压差手势", "Pa",
                 "另一口压力须在此窗口内才判单口手势——两口同忙不判, 防双吹误触单吹"},
-        {6, "scroll_on",        "滚动进入阈值",      150, 50,   480,  "压差手势", "Pa",
+        {6, "scroll_on",        "滚动进入阈值",      150, 0,    480,  "压差手势", "Pa",
                 "两口同时吹/吸到此值→进入双口滚动(吹=上滚 吸=下滚)"},
-        {7, "scroll_off",       "滚动退出阈值",      100, 20,   400,  "压差手势", "Pa",
+        {7, "scroll_off",       "滚动退出阈值",      100, 0,    400,  "压差手势", "Pa",
                 "滚动中压力回落到此值以下→退出滚动"},
-        {9, "vol_tilt",         "音量倾斜阈值",      600, 100,  8000, "压差手势", "ADC计数",
+        {9, "vol_tilt",         "音量倾斜阈值",      600, 0,   8000, "压差手势", "ADC计数",
                 "音量模式: 摇杆上/右/右上侧倾斜合计超此值→调大音量, 下/左/左下侧→调小(135°对角线划分)"},
         {10, "debounce",        "按下去抖拍数",      2,   1,    10,   "压差手势", "拍(50ms)",
                 "吸气类确认去抖: 连续N拍才触发(防压力毛刺)"},
@@ -86,6 +86,8 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     private View mPageParams, mPageWave;
     private Button mTabParams, mTabWave;
     private EditText mEditX;
+    private EditText mEditYStep;
+    private EditText mEditYLabels;
     private Button mBtnPause;
     private final int[] mEdits = new int[PARAMS.length];
     private final Handler mUi = new Handler(Looper.getMainLooper());
@@ -359,11 +361,11 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
 
     /* ================= 波形页(独立页面 + EEG 可控项) ================= */
     private View buildWavePage() {
-        int pad = dp(10);
+        int pad = dp(6);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(0xFF14141E);
-        page.setPadding(pad, pad, pad, dp(4));
+        page.setBackgroundColor(0xFFF5F6F8);   /* 亮色页面(与绘图区一致) */
+        page.setPadding(pad, dp(4), pad, dp(2));
 
         /* 控制条: X 时间窗输入(秒) / 暂停 / 清屏 */
         LinearLayout ctrl = new LinearLayout(this);
@@ -373,21 +375,58 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         mEditX.setHint("1~120");
         mEditX.setSingleLine();
         mEditX.setTextSize(12);
-        mEditX.setTextColor(0xFFECEFF1);
+        mEditX.setTextColor(0xFF263238);
         mEditX.setHintTextColor(0xFF808A9F);
         mEditX.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.55f);
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f);
         elp.setMargins(dp(4), 0, dp(4), 0);
         elp.gravity = Gravity.CENTER_VERTICAL;
         mEditX.setLayoutParams(elp);
         mEditX.setOnEditorActionListener((v, actionId, event) -> {
-            applyXWindow();
+            applyWaveConfig();
             return true;
         });
+        ctrl.addView(lab(this, "X秒"));
         ctrl.addView(mEditX);
+
+        /* Y 轴配置: 步长(Pa/格) + 标签数(3~21), 范围=步长×(标签数-1)/2 */
+        mEditYStep = new EditText(this);
+        mEditYStep.setSingleLine();
+        mEditYStep.setTextSize(12);
+        mEditYStep.setTextColor(0xFF263238);
+        mEditYStep.setHintTextColor(0xFF808A9F);
+        mEditYStep.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        mEditYStep.setHint("格Pa");
+        mEditYStep.setLayoutParams(elp);
+        mEditYStep.setOnEditorActionListener((v, actionId, event) -> {
+            applyWaveConfig();
+            return true;
+        });
+
+        mEditYLabels = new EditText(this);
+        mEditYLabels.setSingleLine();
+        mEditYLabels.setTextSize(12);
+        mEditYLabels.setTextColor(0xFF263238);
+        mEditYLabels.setHintTextColor(0xFF808A9F);
+        mEditYLabels.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        mEditYLabels.setHint("标签");
+        mEditYLabels.setLayoutParams(elp);
+        mEditYLabels.setOnEditorActionListener((v, actionId, event) -> {
+            applyWaveConfig();
+            return true;
+        });
+
+        /* 控件入列顺序: 标签在前、输入框在后(创建已全部完成, 此处只挂树) */
+        ctrl.addView(lab(this, "Y格Pa"));
+        ctrl.addView(mEditYStep);
+        ctrl.addView(lab(this, "Y标签"));
+        ctrl.addView(mEditYLabels);
+        ctrl.addView(lab(this, "  "));
+
         Button applyX = waveBtn("应用");
-        applyX.setOnClickListener(v -> applyXWindow());
+        applyX.setOnClickListener(v -> applyWaveConfig());
         ctrl.addView(applyX);
         mBtnPause = waveBtn("暂停");
         mBtnPause.setOnClickListener(v -> {
@@ -402,22 +441,26 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         ctrl.addView(clear);
         page.addView(ctrl);
 
-        /* S1/S2 数值行 */
+        /* S1/S2 数值行(压缩高度: 字号 14sp, 紧凑间距) */
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
-        mS1Text = chip(chips, 0xFFFF5A5A);
+        chips.setPadding(dp(2), 0, dp(2), 0);
+        mS1Text = chip(chips, 0xFFD32F2F);
         TextView sp = new TextView(this);
-        sp.setText("    ");
+        sp.setText("   ");
         chips.addView(sp);
-        mS2Text = chip(chips, 0xFF53C7FF);
+        mS2Text = chip(chips, 0xFF1976D2);
         page.addView(chips);
 
         mWaveView = new WaveView(this);
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        wlp.setMargins(0, dp(6), 0, 0);
+        wlp.setMargins(0, dp(2), 0, 0);
         mWaveView.setLayoutParams(wlp);
         page.addView(mWaveView);
+
+        /* 恢复上次波形显示配置(X 窗/Y 步长/Y 标签数) */
+        restoreWaveConfig();
 
         /* 阈值线初值 */
         mUi.post(() -> {
@@ -426,18 +469,35 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         return page;
     }
 
+    /** 控制条内的小文字标签(灰底深字, 告诉用户每个输入框调什么) */
+    private TextView lab(android.content.Context c, String s) {
+        TextView t = new TextView(c);
+        t.setText(s);
+        t.setTextSize(11);
+        t.setTextColor(0xFF546E7A);
+        t.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(6), 0, 0, 0);
+        lp.gravity = Gravity.CENTER_VERTICAL;
+        t.setLayoutParams(lp);
+        return t;
+    }
+
     private Button waveBtn(String text) {
         Button b = new Button(this);
         b.setText(text);
         b.setTextSize(12);
         b.setAllCaps(false);
         b.setMinHeight(0);
-        b.setPadding(dp(14), dp(6), dp(14), dp(6));
+        b.setPadding(dp(10), dp(3), dp(10), dp(3));
         b.setBackgroundResource(R.drawable.bg_btn_outline);
-        b.setTextColor(0xFFECEFF1);
+        b.setTextColor(0xFF37474F);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        lp.setMargins(dp(4), 0, dp(4), 0);
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(2), 0, dp(2), 0);
         b.setLayoutParams(lp);
         return b;
     }
@@ -445,7 +505,7 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
     private TextView chip(LinearLayout parent, int color) {
         TextView t = new TextView(this);
         t.setText("-- Pa");
-        t.setTextSize(16);
+        t.setTextSize(14);
         t.setTypeface(null, Typeface.BOLD);
         t.setTextColor(color);
         parent.addView(t);
@@ -495,18 +555,52 @@ public class MainActivity extends AppCompatActivity implements EspLink.Listener 
         return (int) (getResources().getDisplayMetrics().density * v);
     }
 
-    /** X 时间窗应用: 解析输入并钳位 1~120s, 非法值 toast 提示 */
-    private void applyXWindow() {
+    /** 波形显示配置应用: X 时间窗(1~120s) + Y 步长(Pa/格) + Y 标签数(3~21)。
+     *  Y 半量程 = 步长×(标签数-1)/2; 全部持久化, 下次启动自动恢复。 */
+    private void applyWaveConfig() {
         if (mWaveView == null) return;
+        android.content.SharedPreferences sp =
+                getSharedPreferences("wave", MODE_PRIVATE);
         try {
             int sec = Integer.parseInt(mEditX.getText().toString().trim());
             if (sec < 1) sec = 1;
             if (sec > 120) sec = 120;
             mEditX.setText(String.valueOf(sec));
+
+            float step = Float.parseFloat(mEditYStep.getText().toString().trim());
+            if (step < 1f) step = 1f;
+            if (step > 10000f) step = 10000f;
+            mEditYStep.setText(step == Math.floor(step)
+                    ? String.valueOf((int) step) : String.valueOf(step));
+
+            int labels = Integer.parseInt(mEditYLabels.getText().toString().trim());
+            if (labels < 3) labels = 3;
+            if (labels > 41) labels = 41;
+            mEditYLabels.setText(String.valueOf(labels));
+
             mWaveView.setXSeconds(sec);
+            mWaveView.setYAxis(step, labels);
+
+            sp.edit().putInt("xSec", sec)
+                     .putFloat("yStep", step)
+                     .putInt("yLabels", labels).apply();
         } catch (NumberFormatException ex) {
-            toast("X 窗口请输入 1~120 的秒数");
+            toast("请输入数字: X=秒, Y步长=Pa/格, 标签数=3~21");
         }
+    }
+
+    /** 恢复上次保存的波形显示配置(无存档时默认 X=10s/步长 100/标签 11) */
+    private void restoreWaveConfig() {
+        android.content.SharedPreferences sp =
+                getSharedPreferences("wave", MODE_PRIVATE);
+        int sec = sp.getInt("xSec", 10);
+        float step = sp.getFloat("yStep", 100f);
+        int labels = sp.getInt("yLabels", 11);
+        mEditX.setText(String.valueOf(sec));
+        mEditYStep.setText(step == Math.floor(step)
+                ? String.valueOf((int) step) : String.valueOf(step));
+        mEditYLabels.setText(String.valueOf(labels));
+        mEditX.post(() -> applyWaveConfig());
     }
 
 

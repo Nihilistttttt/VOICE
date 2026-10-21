@@ -18,10 +18,11 @@ public class WaveView extends View {
 
     private static final int MAX_POINTS = 2400;      /* 50ms/帧(20Hz) → 120s 满窗 */
     private static final long INVALIDATE_MS = 33;    /* EEG 同款刷新节流 */
-    private static final float Y_MAX = 500f;         /* Y 固定 ±500Pa */
     private static final float FRAME_MS = 50f;       /* 波形帧周期 */
-    private static final int GRID_PA = 10;           /* Y 刻度线间隔: 每 10Pa */
-    private static final int[] LABEL_STEPS = {10, 20, 50, 100, 200};  /* 标签步长候选 */
+    /* ---- Y 轴可配置(EEG 同款): 半量程 = 步长 × (标签数-1) / 2, 上下对称 ---- */
+    private volatile float mYMax = 500f;             /* Y 半量程 Pa(setYAxis 算出) */
+    private volatile float mStepPa = 100f;           /* Y 每格步长 Pa(标签线间隔) */
+    private volatile int   mLabelCount = 11;         /* 标签条数(含 0 与 ±端点) */
 
     private final int[] ch1 = new int[MAX_POINTS];   /* Pa(有符号) */
     private final int[] ch2 = new int[MAX_POINTS];
@@ -58,15 +59,15 @@ public class WaveView extends View {
         density = getResources().getDisplayMetrics().density;
         scaledDensity = getResources().getDisplayMetrics().scaledDensity;
 
-        pGridFine.setColor(0xFF1D1D2A);
+        pGridFine.setColor(0xFFE2E5EA);   /* 浅色细网格 */
         pGridFine.setStrokeWidth(1f);
-        pGridCoarse.setColor(0xFF26263A);
+        pGridCoarse.setColor(0xFFC9CED6);  /* 浅色粗格虚线 */
         pGridCoarse.setStrokeWidth(1f);
         pGridCoarse.setPathEffect(new DashPathEffect(
                 new float[]{4f * density, 4f * density}, 0));
-        pZero.setColor(0xFF3C3C54);
+        pZero.setColor(0xFF8A93A0);       /* 浅色 0 基线 */
         pZero.setStrokeWidth(1.5f);
-        pAxis.setColor(0xFF4A4A66);
+        pAxis.setColor(0xFF6B7480);        /* 浅色轴线 */
         pAxis.setStrokeWidth(1f);
 
         p1.setColor(0xFFFF5A5A);
@@ -74,7 +75,7 @@ public class WaveView extends View {
         p1.setStyle(Paint.Style.STROKE);
         p1.setAntiAlias(true);
         p1.setStrokeJoin(Paint.Join.ROUND);
-        p2.setColor(0xFF53C7FF);
+        p2.setColor(0xFF1976D2);   /* 浅色底: 加深蓝提高对比 */
         p2.setStrokeWidth(2.5f);
         p2.setStyle(Paint.Style.STROKE);
         p2.setAntiAlias(true);
@@ -83,12 +84,12 @@ public class WaveView extends View {
         pGlow1.setStrokeWidth(8f);
         pGlow1.setStyle(Paint.Style.STROKE);
         pGlow1.setAntiAlias(true);
-        pGlow2.setColor(0x3353C7FF);
+        pGlow2.setColor(0x221976D2);
         pGlow2.setStrokeWidth(8f);
         pGlow2.setStyle(Paint.Style.STROKE);
         pGlow2.setAntiAlias(true);
 
-        pLabel.setColor(0xFFC9C9D6);
+        pLabel.setColor(0xFF37474F);   /* 浅色底: 深灰文字 */
         pLabel.setTextSize(11f * scaledDensity);
         pLabel.setAntiAlias(true);
 
@@ -108,6 +109,16 @@ public class WaveView extends View {
     /* ==== 控制接口 ==== */
 
     /** 设置 X 时间窗(秒), 钳位 1~120 */
+    /** Y 轴配置(EEG 同款): 步长=每格 Pa, 标签数=总条数(含 0 与 ±端点)。
+     *  半量程 = 步长×(标签数-1)/2, 上下对称; 修改后自动重绘。 */
+    public void setYAxis(float stepPa, int labelCount) {
+        if (stepPa <= 0 || labelCount < 3 || labelCount > 41) return;
+        mStepPa = stepPa;
+        mLabelCount = labelCount;
+        mYMax = stepPa * (labelCount - 1) / 2f;
+        postInvalidate();
+    }
+
     public void setXSeconds(float s) {
         if (s < 1f) s = 1f;
         if (s > 120f) s = 120f;
@@ -157,7 +168,7 @@ public class WaveView extends View {
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
 
-        cv.drawColor(0xFF14141E);
+        cv.drawColor(0xFFF5F6F8);        /* 浅色底(用户要求, 非深色) */
 
         /* EEG 布局: 左侧数值标签区 + 底部时间标签区 */
         final float left = 26f * density;
@@ -165,25 +176,28 @@ public class WaveView extends View {
         final float right = w - 5f * density;
         final float bottom = h - 24f * density;
 
-        final float pxPerPa = (bottom - top) / (2f * Y_MAX);
-        final float cy = bottom - Y_MAX * pxPerPa;      /* 0Pa 基线位置 */
+        final float pxPerPa = (bottom - top) / (2f * mYMax);
+        final float cy = bottom - mYMax * pxPerPa;      /* 0Pa 基线位置 */
 
-        /* --- Y 轴: 每 10Pa 一条刻度线; 数值标签按像素密度自适应步长 --- */
-        int labelPa = LABEL_STEPS[LABEL_STEPS.length - 1];
-        for (int s : LABEL_STEPS) {
-            if (s * pxPerPa >= 13f * scaledDensity) { labelPa = s; break; }
+        /* --- Y 轴: 细格线(步长/5) + 粗格标签线(每步长一条, 标签=步长倍数)---
+         * 标签语义与 EEG WaveformView 一致: ±端点与 0 处标数值 */
+        int fineN = Math.round(2f * mYMax / (mStepPa / 5f));
+        for (int i = 1; i < fineN; i++) {
+            float pa = -mYMax + i * (mStepPa / 5f);
+            float y = bottom - (pa + mYMax) * pxPerPa;
+            cv.drawLine(left, y, right, y, pGridFine);
         }
-        for (int pa = -(int) Y_MAX; pa <= (int) Y_MAX; pa += GRID_PA) {
-            if (pa == 0) continue;                       /* 0 线单独画 */
-            float y = bottom - (pa + Y_MAX) * pxPerPa;
-            boolean isLabel = (pa % labelPa == 0);
-            cv.drawLine(left, y, right, y, isLabel ? pGridCoarse : pGridFine);
-            if (isLabel) {
+        for (int i = 0; i < mLabelCount; i++) {
+            float pa = -mYMax + i * mStepPa;
+            float y = bottom - (pa + mYMax) * pxPerPa;
+            cv.drawLine(left, y, right, y, pGridCoarse);
+            if (i > 0 && i < mLabelCount - 1) {
                 cv.drawLine(left - 5f * density, y, left, y, pAxis);
-                String lab = String.valueOf(pa);
-                float tw = pLabel.measureText(lab);
-                cv.drawText(lab, left - 7f * density - tw, y + 4f * density, pLabel);
             }
+            String lab = (pa == Math.floor(pa))
+                    ? String.valueOf((int) pa) : String.valueOf(pa);
+            float tw = pLabel.measureText(lab);
+            cv.drawText(lab, left - 7f * density - tw, y + 4f * density, pLabel);
         }
         cv.drawLine(left, cy, right, cy, pZero);         /* 0Pa 基线 */
         String zero = "0";
@@ -220,9 +234,9 @@ public class WaveView extends View {
         }
 
         /* --- 上下限标签(EEG 左上/左下角) --- */
-        cv.drawText("+" + (int) Y_MAX + " Pa", left + 6f * density,
+        cv.drawText("+" + (int) mYMax + " Pa", left + 6f * density,
                 top + 13f * scaledDensity, pLabel);
-        cv.drawText("-" + (int) Y_MAX + " Pa", left + 6f * density,
+        cv.drawText("-" + (int) mYMax + " Pa", left + 6f * density,
                 bottom - 5f * density, pLabel);
 
         if (paused) {
