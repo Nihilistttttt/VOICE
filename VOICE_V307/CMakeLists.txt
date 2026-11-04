@@ -9,8 +9,8 @@ file(GLOB_RECURSE APP_C CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/User/*.c
     ${CMAKE_SOURCE_DIR}/Services/*.c
     ${CMAKE_SOURCE_DIR}/Drivers/*.c
-    ${CMAKE_SOURCE_DIR}/Common/*.c
-    ${CMAKE_SOURCE_DIR}/Framework/*.c
+    ${CMAKE_SOURCE_DIR}/App/*.c
+    ${CMAKE_SOURCE_DIR}/Board/*.c
     ${CMAKE_SOURCE_DIR}/Middleware/*.c
     ${CMAKE_SOURCE_DIR}/Peripheral/src/*.c
     ${CMAKE_SOURCE_DIR}/Core/*.c
@@ -28,10 +28,11 @@ target_include_directories(VOICE.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/User
     ${CMAKE_SOURCE_DIR}/Peripheral/inc
     ${CMAKE_SOURCE_DIR}/USB_Host
-    ${CMAKE_SOURCE_DIR}/Common
+    ${CMAKE_SOURCE_DIR}/App
+    ${CMAKE_SOURCE_DIR}/Board
     ${CMAKE_SOURCE_DIR}/Drivers
-    ${CMAKE_SOURCE_DIR}/Framework
     ${CMAKE_SOURCE_DIR}/Middleware
+    ${CMAKE_SOURCE_DIR}/Middleware/SMF
     ${CMAKE_SOURCE_DIR}/Services)
 
 # ---- 编译选项(与 MounRiver 一致) ----
@@ -54,8 +55,9 @@ target_link_options(VOICE.elf PRIVATE
     --specs=nano.specs --specs=nosys.specs)
 
 # ---- 产物: HEX(Burn 到 CH32) ----
-find_program(OBJCOPY riscv-none-embed-objcopy.exe
-    PATHS "${TOOLBIN}" NO_DEFAULT_PATH)
+# objcopy 与 C 编译器同目录同前缀(工具链换版本自动跟随, 无需硬编码路径)
+string(REPLACE "riscv-none-embed-gcc.exe" "riscv-none-embed-objcopy.exe"
+       OBJCOPY "${CMAKE_C_COMPILER}")
 add_custom_command(TARGET VOICE.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex VOICE.elf VOICE.hex
     COMMAND ${CMAKE_OBJCOPY} -O binary VOICE.elf VOICE.bin

@@ -2,7 +2,7 @@
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR riscv)
 
-set(TOOLBIN "D:/InstallData/EmbTools/MounRiver/MounRiver_Studio2/resources/app/resources/win32/components/WCH/Toolchain/RISC-V Embedded GCC/bin")
+set(TOOLBIN "D:/InstallData/EmbTools/MounRiver/MounRiver_Studio3/resources/app/resources/win32/components/WCH/Toolchain/RISC-V Embedded GCC/bin")
 set(CMAKE_C_COMPILER   ${TOOLBIN}/riscv-none-embed-gcc.exe)
 set(CMAKE_ASM_COMPILER ${TOOLBIN}/riscv-none-embed-gcc.exe)
 set(CMAKE_CXX_COMPILER ${TOOLBIN}/riscv-none-embed-gcc.exe)
