@@ -197,7 +197,7 @@ ESP32-S3 用双核**物理隔离**:
 |---|---|
 | **BLE HID（HOGP）** | ✅ 支持。ESP-IDF `esp_hid` 组件提供 HID device（键盘/鼠标/Consumer 三合一复合），BLE 5 连接 |
 | **经典蓝牙 HID（BR/EDR）** | ❌ **ESP32-S3 无经典蓝牙**——HC-05 是经典 BT SPP，**必须迁 BLE GATT 自定义服务**（App 端需重写 BLE 客户端） |
-| **Android/EMUI 兼容性** | ❌ **调研结论(2026-11-04): BLE HID 鼠标在华为手机上基本不可用**——AOSP 的 HID **Host** 只有经典蓝牙 profile(BluetoothHidHost)，系统设置能配的是经典 BT 鼠标/键盘；**HOGP(BLE HID host)在 AOSP 长期缺失**，纯 BLE HID 外设不会被 Android 识别为输入设备。Android 的 BluetoothHidDevice API(API 28) 是**手机当 HID 设备**的 API，不是手机收 BLE 鼠标。<br>华为官方支持列表只列经典 **HID**（使用蓝牙键盘和鼠标），无 HOGP。<br>**ESP32-S3 无经典 BT → 蓝牙 HID 路线走不通**。替代三选一：<br>①**USB HID 有线**（保底，当前方案，患者手机插线即用）<br>②**BLE GATT 自定义服务 + App 无障碍注入**（voice_config/voice_control 已有 AccessibilityService 注入能力：ESP32 经 BLE 发点击/滑动/滚动指令，App 用无障碍 API 注入系统输入——**不依赖系统 HID，华为可用**）<br>③保留经典 BT 芯片做无线 HID（不省钱，不推荐） |
+| **Android/EMUI 兼容性** | ✅ **修正(2026-11-04 二次调研): 华为/HarmonyOS 原生支持 BLE HID(HOGP)**。**硬证据**: ① **蚂蚁集团开源项目 BlueHIDFlow**(github antgroup/BlueHIDFlow, Apache-2.0, ESP32-S3 固件)明确支持 Android/iOS/HarmonyOS，声明三平台「BLE HID 原生支持、无需装 App/驱动」，并详述了实测细节(含「Android/鸿蒙不支持 BLE Digitizer 绝对坐标、只认 Mouse HID 相对坐标」的坑与 Home-to-Target 归零法)；② **EasyClick(易点新媒)商用群控文档**: HarmonyOS Next 下用 ESP32-C3/S3 发蓝牙 HID，手机「设置→蓝牙」直接配对开发板(图标显示键盘/鼠标)——系统级 HID Host。<br>**我此前的错误**: 把 AOSP 的 HID Host 只有经典 profile 泛化成「华为也不行」——**厂商 ROM(HarmonyOS/新版 EMUI)在系统层实现了 HOGP host**，AOSP 行为不等于厂商实现。<br>**残留风险(仍需实测)**: ① **老 EMUI 版本**的支持起始版本未确认(BlueHIDFlow 面向较新系统)；② **复合设备**(鼠标+键盘+Consumer 三合一)在具体机型上的完整度；③ **无绝对坐标**——定位必须用相对移动(归零法)。**结论**: USB HID(有线) + BLE HID(无线) 双模均可做到系统级，App 无障碍注入降为第三备选。 |
 
 ### 8.2 SD 卡（SDMMC）—— 支持，且引脚可任意映射
 
